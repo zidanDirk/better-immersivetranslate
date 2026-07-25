@@ -19,29 +19,134 @@ import { isRecord } from "./unknown-value.js";
 const selectionMenuId = "translate-selected-text";
 const translationBatchSize = 10;
 
-function isSemanticTextBlock(value: unknown): value is SemanticTextBlock {
-  return isRecord(value) && typeof value.id === "string" && typeof value.text === "string";
+interface TabTranslationState {
+  failedBatchCount: number;
+  pendingIncrementalBlocks: Map<string, SemanticTextBlock>;
+  queue: Promise<void>;
+  scheduledIncrementalTranslation?: Promise<void>;
 }
 
-async function runTranslationBatch(tabId: number, batchIndex: number, retryBatch: RetryTranslationBatch): Promise<void> {
+const translationStateByTab = new Map<number, TabTranslationState>();
+
+function translationState(tabId: number): TabTranslationState {
+  const existing = translationStateByTab.get(tabId);
+  if (existing) {
+    return existing;
+  }
+  const created: TabTranslationState = {
+    failedBatchCount: 0,
+    pendingIncrementalBlocks: new Map(),
+    queue: Promise.resolve(),
+  };
+  translationStateByTab.set(tabId, created);
+  return created;
+}
+
+function isSemanticTextBlock(value: unknown): value is SemanticTextBlock {
+  return isRecord(value) && typeof value.id === "string" && typeof value.text === "string" && (value.version === undefined || (typeof value.version === "number" && Number.isInteger(value.version) && value.version >= 0));
+}
+
+async function runTranslationBatch(tabId: number, batchIndex: number, retryBatch: RetryTranslationBatch): Promise<boolean> {
   await chrome.scripting.executeScript({ target: { tabId }, func: updateTranslationBatchProgress, args: [batchIndex, { status: "processing" }] });
   const result = await translateSemanticTextBatch(retryBatch.blocks, retryBatch.targetLanguage);
   if (result.kind === "failed") {
     await chrome.scripting.executeScript({ target: { tabId }, func: updateTranslationBatchProgress, args: [batchIndex, { status: "failed", failureKind: result.failureKind, retryBatch }] });
-    return;
+    return false;
   }
-  await chrome.scripting.executeScript({ target: { tabId }, func: insertBilingualTranslations, args: [result.translations, retryBatch.targetLanguage] });
+  await chrome.scripting.executeScript({ target: { tabId }, func: insertBilingualTranslations, args: [result.translations, retryBatch.targetLanguage, retryBatch.blocks] });
   await chrome.scripting.executeScript({ target: { tabId }, func: updateTranslationBatchProgress, args: [batchIndex, { status: "complete" }] });
+  return true;
 }
 
-async function translateCurrentPage(tabId: number): Promise<void> {
-  const extraction = await chrome.scripting.executeScript({ target: { tabId }, func: collectTranslatableSemanticTextBlocks, args: [DEFAULT_EXCLUDED_CONTENT_SELECTOR] });
-  const blocks = (extraction[0]?.result ?? []) as SemanticTextBlock[];
-  if (blocks.length === 0) return;
+function enqueueTranslation(
+  tabId: number,
+  translation: () => Promise<void>,
+): Promise<void> {
+  const state = translationState(tabId);
+  const current = state.queue.catch(() => {}).then(translation);
+  state.queue = current;
+  const removeCompletedQueue = (): void => {
+    if (state.queue === current) {
+      state.queue = Promise.resolve();
+    }
+  };
+  void current.then(removeCompletedQueue, removeCompletedQueue);
+  return current;
+}
+
+async function translateBlocks(
+  tabId: number,
+  blocks: SemanticTextBlock[],
+): Promise<number> {
+  if (blocks.length === 0) return 0;
   const batches = Array.from({ length: Math.ceil(blocks.length / translationBatchSize) }, (_, index) => blocks.slice(index * translationBatchSize, (index + 1) * translationBatchSize));
   await chrome.scripting.executeScript({ target: { tabId }, func: initializeTranslationProgress, args: [batches.length] });
   const targetLanguage = chrome.i18n.getUILanguage();
-  for (const [batchIndex, batch] of batches.entries()) await runTranslationBatch(tabId, batchIndex, { blocks: batch, targetLanguage });
+  let failureCount = 0;
+  for (const [batchIndex, batch] of batches.entries()) {
+    if (!(await runTranslationBatch(tabId, batchIndex, { blocks: batch, targetLanguage }))) {
+      failureCount += 1;
+    }
+  }
+  return failureCount;
+}
+
+function mergePendingIncrementalBlocks(
+  tabId: number,
+  blocks: SemanticTextBlock[],
+): void {
+  const pending = translationState(tabId).pendingIncrementalBlocks;
+  for (const block of blocks) {
+    const current = pending.get(block.id);
+    if ((current?.version ?? -1) <= (block.version ?? 0)) {
+      pending.set(block.id, block);
+    }
+  }
+}
+
+function scheduleIncrementalTranslation(tabId: number): Promise<void> {
+  const state = translationState(tabId);
+  if (state.failedBatchCount > 0) {
+    return Promise.resolve();
+  }
+  const scheduled = state.scheduledIncrementalTranslation;
+  if (scheduled) {
+    return scheduled;
+  }
+
+  const current = enqueueTranslation(tabId, async () => {
+    const pending = state.pendingIncrementalBlocks;
+    if (pending.size === 0) {
+      return;
+    }
+    state.pendingIncrementalBlocks = new Map();
+    state.failedBatchCount = await translateBlocks(tabId, [
+      ...pending.values(),
+    ]);
+  });
+  state.scheduledIncrementalTranslation = current;
+  const scheduleLatestPendingBlocks = (): void => {
+    if (state.scheduledIncrementalTranslation === current) {
+      state.scheduledIncrementalTranslation = undefined;
+    }
+    if (
+      state.failedBatchCount === 0 &&
+      state.pendingIncrementalBlocks.size > 0
+    ) {
+      void scheduleIncrementalTranslation(tabId);
+    }
+  };
+  void current.then(scheduleLatestPendingBlocks, scheduleLatestPendingBlocks);
+  return current;
+}
+
+async function translateCurrentPage(tabId: number): Promise<void> {
+  const state = translationState(tabId);
+  state.pendingIncrementalBlocks.clear();
+  state.failedBatchCount = 0;
+  const extraction = await chrome.scripting.executeScript({ target: { tabId }, func: collectTranslatableSemanticTextBlocks, args: [DEFAULT_EXCLUDED_CONTENT_SELECTOR, true] });
+  const blocks = (extraction[0]?.result ?? []) as SemanticTextBlock[];
+  state.failedBatchCount = await translateBlocks(tabId, blocks);
 }
 
 async function setReadingMode(tabId: number, mode: ReadingMode): Promise<void> {
@@ -63,15 +168,40 @@ async function handleSelectionMenuClick(info: chrome.contextMenus.OnClickData, t
   await translateSelectedText(tab.id, info.selectionText);
 }
 chrome.contextMenus.onClicked.addListener(handleSelectionMenuClick);
+chrome.tabs.onRemoved.addListener((tabId) => {
+  translationStateByTab.delete(tabId);
+});
 Object.assign(globalThis, { betterImmersiveBackground: { handleSelectionMenuClick } });
 
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
   if (isRecord(message) && message.kind === "translate-current-page" && typeof message.tabId === "number") {
-    void translateCurrentPage(message.tabId).then(() => sendResponse({ kind: "complete" }), () => sendResponse({ kind: "failed" }));
+    const tabId = message.tabId;
+    void enqueueTranslation(tabId, () => translateCurrentPage(tabId)).then(() => sendResponse({ kind: "complete" }), () => sendResponse({ kind: "failed" }));
+    return true;
+  }
+  if (isRecord(message) && message.kind === "translate-incremental-blocks" && Array.isArray(message.blocks) && message.blocks.every(isSemanticTextBlock) && sender.tab?.id !== undefined) {
+    const tabId = sender.tab.id;
+    const blocks = message.blocks;
+    mergePendingIncrementalBlocks(tabId, blocks);
+    void scheduleIncrementalTranslation(tabId).then(() => sendResponse({ kind: "complete" }), () => sendResponse({ kind: "failed" }));
     return true;
   }
   if (isRecord(message) && message.kind === "retry-translation-batch" && typeof message.batchIndex === "number" && Array.isArray(message.blocks) && message.blocks.every(isSemanticTextBlock) && typeof message.targetLanguage === "string" && sender.tab?.id !== undefined) {
-    void runTranslationBatch(sender.tab.id, message.batchIndex, { blocks: message.blocks, targetLanguage: message.targetLanguage }).then(() => sendResponse({ kind: "complete" }), () => sendResponse({ kind: "failed" }));
+    const tabId = sender.tab.id;
+    const batchIndex = message.batchIndex;
+    const blocks = message.blocks;
+    const targetLanguage = message.targetLanguage;
+    void enqueueTranslation(tabId, async () => {
+      const recovered = await runTranslationBatch(tabId, batchIndex, {
+        blocks,
+        targetLanguage,
+      });
+      if (recovered) {
+        const state = translationState(tabId);
+        state.failedBatchCount = Math.max(0, state.failedBatchCount - 1);
+        void scheduleIncrementalTranslation(tabId);
+      }
+    }).then(() => sendResponse({ kind: "complete" }), () => sendResponse({ kind: "failed" }));
     return true;
   }
   if (isRecord(message) && message.kind === "set-reading-mode" && typeof message.tabId === "number" && isReadingMode(message.mode)) {

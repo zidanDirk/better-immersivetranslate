@@ -107,7 +107,7 @@ export async function translateSemanticTextBatch(
         content: JSON.stringify({
           sourceLanguage: "auto",
           targetLanguage,
-          blocks: uncachedBlocks,
+          blocks: uncachedBlocks.map(({ id, text }) => ({ id, text })),
         }),
       },
     ],

@@ -1,6 +1,7 @@
 export interface SemanticTextBlock {
   id: string;
   text: string;
+  version?: number;
 }
 
 export interface Translation {
@@ -16,6 +17,7 @@ export function initializeTranslationProgress(batchCount: number): void {
   document.querySelector("[data-better-immersive-progress]")?.remove();
   const progress = document.createElement("section");
   progress.dataset.betterImmersiveProgress = "";
+  progress.dataset.betterImmersiveNoTranslate = "";
   progress.setAttribute("role", "region");
   progress.setAttribute("aria-label", "翻译进度");
   progress.setAttribute("aria-live", "polite");
@@ -91,45 +93,180 @@ export function isReadingMode(value: unknown): value is ReadingMode {
 
 export function collectTranslatableSemanticTextBlocks(
   excludedContentSelector: string,
+  observeChanges = false,
 ): SemanticTextBlock[] {
   const semanticTextBlockSelector =
     "h1, h2, h3, h4, h5, h6, p, li, td, th";
 
-  return Array.from(
-    document.querySelectorAll<HTMLElement>(semanticTextBlockSelector),
-  )
-    .filter((element) => element.closest(excludedContentSelector) === null)
-    .filter((element) => {
-      const semanticAncestor = element.parentElement?.closest(
-        semanticTextBlockSelector,
-      );
-      return (
-        semanticAncestor === null ||
-        semanticAncestor === undefined ||
-        (element.matches("li") && semanticAncestor.matches("li"))
-      );
-    })
-    .map((element) => {
-      const safeContent = element.cloneNode(true) as HTMLElement;
-      safeContent
-        .querySelectorAll(excludedContentSelector)
-        .forEach((excludedElement) => excludedElement.remove());
-      if (element.matches("li")) {
+  const collectCandidates = (): Array<{
+    element: HTMLElement;
+    text: string;
+  }> =>
+    Array.from(
+      document.querySelectorAll<HTMLElement>(semanticTextBlockSelector),
+    )
+      .filter((element) => element.closest(excludedContentSelector) === null)
+      .filter((element) => {
+        const semanticAncestor = element.parentElement?.closest(
+          semanticTextBlockSelector,
+        );
+        return (
+          semanticAncestor === null ||
+          semanticAncestor === undefined ||
+          (element.matches("li") && semanticAncestor.matches("li"))
+        );
+      })
+      .map((element) => {
+        const safeContent = element.cloneNode(true) as HTMLElement;
         safeContent
-          .querySelectorAll("li")
-          .forEach((nestedListItem) => nestedListItem.remove());
+          .querySelectorAll<HTMLTemplateElement>(
+            "[data-better-immersive-stashed-original-for]",
+          )
+          .forEach((stashedOriginal) => {
+            stashedOriginal.replaceWith(
+              stashedOriginal.content.cloneNode(true),
+            );
+          });
+        safeContent
+          .querySelectorAll(excludedContentSelector)
+          .forEach((excludedElement) => excludedElement.remove());
+        if (element.matches("li")) {
+          safeContent
+            .querySelectorAll("li")
+            .forEach((nestedListItem) => nestedListItem.remove());
+        }
+        return {
+          element,
+          text: (safeContent.textContent ?? "").replace(/\s+/g, " ").trim(),
+        };
+      });
+
+  const elementsWithBlockIds = Array.from(
+    document.querySelectorAll<HTMLElement>(
+      "[data-better-immersive-block-id]",
+    ),
+  );
+  const blockOwnerById = new Map<string, HTMLElement>();
+  elementsWithBlockIds.forEach((element) => {
+    const id = element.dataset.betterImmersiveBlockId;
+    if (id && !blockOwnerById.has(id)) {
+      blockOwnerById.set(id, element);
+    }
+  });
+  let nextBlockIndex = elementsWithBlockIds.reduce((nextIndex, element) => {
+    const match = /^block-(\d+)$/.exec(
+      element.dataset.betterImmersiveBlockId ?? "",
+    );
+    return Math.max(nextIndex, Number(match?.[1] ?? -1) + 1);
+  }, 0);
+  const observedTextByElement = new WeakMap<HTMLElement, string>();
+  const observedElements = new Set<HTMLElement>();
+  const removeRenderedTranslation = (element: HTMLElement): void => {
+    element
+      .querySelectorAll<HTMLElement>(
+        ":scope > [data-better-immersive-translation-for]",
+      )
+      .forEach((translation) => translation.remove());
+  };
+  const advanceBlockVersion = (element: HTMLElement): number => {
+    const currentVersion = Number(
+      element.dataset.betterImmersiveBlockVersion ?? -1,
+    );
+    const version = Number.isInteger(currentVersion) ? currentVersion + 1 : 0;
+    element.dataset.betterImmersiveBlockVersion = String(version);
+    return version;
+  };
+  const collectChangedBlocks = (): SemanticTextBlock[] => {
+    const candidates = collectCandidates();
+    const candidateElements = new Set(
+      candidates.map(({ element }) => element),
+    );
+    observedElements.forEach((element) => {
+      if (candidateElements.has(element)) {
+        return;
       }
-      return {
-        element,
-        text: (safeContent.textContent ?? "").replace(/\s+/g, " ").trim(),
-      };
-    })
-    .filter(({ text }) => text.length > 0)
-    .map(({ element, text }, index) => {
-      const id = `block-${index}`;
-      element.dataset.betterImmersiveBlockId = id;
-      return { id, text };
+      removeRenderedTranslation(element);
+      if (element.dataset.betterImmersiveBlockId) {
+        advanceBlockVersion(element);
+      }
+      observedTextByElement.delete(element);
+      observedElements.delete(element);
     });
+
+    const changedBlocks: SemanticTextBlock[] = [];
+    candidates.forEach(({ element, text }) => {
+      const previousText = observedTextByElement.get(element);
+      if (previousText === text || (previousText === undefined && text === "")) {
+        return;
+      }
+      removeRenderedTranslation(element);
+      observedTextByElement.set(element, text);
+      observedElements.add(element);
+
+        let id = element.dataset.betterImmersiveBlockId;
+        if (id && !/^block-\d+$/.test(id)) {
+          id = undefined;
+          delete element.dataset.betterImmersiveBlockId;
+          delete element.dataset.betterImmersiveBlockVersion;
+        }
+        const currentOwner = id ? blockOwnerById.get(id) : undefined;
+        if (
+          id &&
+          currentOwner !== undefined &&
+          currentOwner !== element &&
+          currentOwner.isConnected
+        ) {
+          id = undefined;
+          delete element.dataset.betterImmersiveBlockId;
+          delete element.dataset.betterImmersiveBlockVersion;
+        }
+        if (!id) {
+          id = `block-${nextBlockIndex}`;
+          nextBlockIndex += 1;
+          element.dataset.betterImmersiveBlockId = id;
+        }
+        blockOwnerById.set(id, element);
+        const version = advanceBlockVersion(element);
+        element.dataset.betterImmersiveBlockId = id;
+        if (text !== "") {
+          changedBlocks.push({ id, text, version });
+        }
+    });
+    return changedBlocks;
+  };
+
+  const initialBlocks = collectChangedBlocks();
+  if (!observeChanges) {
+    return initialBlocks;
+  }
+
+  const observerState = window as typeof window & {
+    betterImmersiveIncrementalObserver?: MutationObserver;
+  };
+  observerState.betterImmersiveIncrementalObserver?.disconnect();
+  let pendingCollection: number | undefined;
+  const observer = new MutationObserver(() => {
+    window.clearTimeout(pendingCollection);
+    pendingCollection = window.setTimeout(() => {
+      const changedBlocks = collectChangedBlocks();
+      if (changedBlocks.length > 0) {
+        void chrome.runtime
+          .sendMessage({
+            kind: "translate-incremental-blocks",
+            blocks: changedBlocks,
+          })
+          .catch(() => {});
+      }
+    }, 75);
+  });
+  observer.observe(document.body, {
+    characterData: true,
+    childList: true,
+    subtree: true,
+  });
+  observerState.betterImmersiveIncrementalObserver = observer;
+
+  return initialBlocks;
 }
 
 export function selectionIntersectsDefaultExcludedContent(
@@ -192,6 +329,7 @@ export function showSelectedTextTranslation(
 export function insertBilingualTranslations(
   translations: Translation[],
   targetLanguage: string,
+  translatedBlocks: SemanticTextBlock[] = [],
 ): void {
   const sourceElementsById = new Map(
     Array.from(
@@ -206,17 +344,34 @@ export function insertBilingualTranslations(
   const translationsById = new Map(
     translations.map((translation) => [translation.id, translation.text]),
   );
+  const translatedVersionsById = new Map(
+    translatedBlocks.map((block) => [block.id, block.version]),
+  );
 
   sourceElementsById.forEach((sourceElement, id) => {
     const translatedText = translationsById.get(id);
     if (translatedText === undefined) {
       return;
     }
+    const translatedVersion = translatedVersionsById.get(id);
+    if (
+      translatedVersion !== undefined &&
+      sourceElement.dataset.betterImmersiveBlockVersion !==
+        String(translatedVersion)
+    ) {
+      return;
+    }
 
+    sourceElement
+      .querySelectorAll<HTMLElement>(
+        ":scope > [data-better-immersive-translation-for]",
+      )
+      .forEach((existingTranslation) => existingTranslation.remove());
     const translation = document.createElement("span");
     translation.style.display = "block";
     translation.lang = targetLanguage;
     translation.dataset.betterImmersiveTranslationFor = id;
+    translation.dataset.betterImmersiveNoTranslate = "";
     translation.textContent = translatedText;
     sourceElement.append(translation);
   });

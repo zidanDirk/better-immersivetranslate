@@ -1,32 +1,14 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { launchExtension } from "./extension";
 import {
   startFakeOpenAiServer,
   type ReceivedOpenAiRequest,
 } from "./fake-openai-server";
-
-async function saveConfiguration(page: Page, endpoint: string): Promise<void> {
-  await page.getByRole("button", { name: "新增 LLM 配置" }).click();
-  await page.getByLabel("名称").fill("批次恢复测试");
-  await page.getByLabel("服务地址").fill(endpoint);
-  await page.getByLabel("API Key").fill("translation-secret");
-  await page.getByLabel("模型").fill("translation-model");
-  await page.getByRole("button", { name: "保存配置" }).click();
-}
-
-function completion(
-  translations: Array<{ id: string; text: string }>,
-): unknown {
-  return {
-    choices: [
-      {
-        message: {
-          content: JSON.stringify({ translations }),
-        },
-      },
-    ],
-  };
-}
+import {
+  saveMinimalLlmConfiguration,
+  translationCompletion,
+  triggerCurrentPageTranslation,
+} from "./translation-test-support";
 
 function requestBody(request: ReceivedOpenAiRequest): {
   messages: Array<{ role: string; content: string }>;
@@ -34,17 +16,6 @@ function requestBody(request: ReceivedOpenAiRequest): {
   return request.body as {
     messages: Array<{ role: string; content: string }>;
   };
-}
-
-async function triggerTranslation(
-  context: Awaited<ReturnType<typeof launchExtension>>["context"],
-  extensionId: string,
-  page: Page,
-): Promise<void> {
-  const popup = await context.newPage();
-  await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-  await page.bringToFront();
-  await popup.getByRole("button", { name: "翻译当前网页" }).click();
 }
 
 test("翻译界面按批次显示等待、处理和完成状态", async () => {
@@ -57,7 +28,7 @@ test("翻译界面按批次显示等待、处理和完成状态", async () => {
     responseSequence: [
       {
         delayMs: 500,
-        responseBody: completion(
+        responseBody: translationCompletion(
           Array.from({ length: 10 }, (_, index) => ({
             id: `block-${index}`,
             text: `Translation ${index + 1}`,
@@ -66,7 +37,7 @@ test("翻译界面按批次显示等待、处理和完成状态", async () => {
       },
       {
         delayMs: 500,
-        responseBody: completion([
+        responseBody: translationCompletion([
           { id: "block-10", text: "Translation 11" },
         ]),
       },
@@ -77,11 +48,11 @@ test("翻译界面按批次显示等待、处理和完成状态", async () => {
   });
 
   try {
-    await saveConfiguration(optionsPage, fakeServer.endpoint);
+    await saveMinimalLlmConfiguration(optionsPage, fakeServer.endpoint);
     const page = await context.newPage();
     await page.goto(fakeServer.pageUrl);
 
-    await triggerTranslation(context, extensionId, page);
+    await triggerCurrentPageTranslation(context, extensionId, page);
 
     const progress = page.getByRole("region", { name: "翻译进度" });
     await expect(progress.getByText("批次 1：处理中")).toBeVisible();
@@ -120,11 +91,11 @@ test("批次认证失败时显示原因且原文和页面交互仍可用", async
   });
 
   try {
-    await saveConfiguration(optionsPage, fakeServer.endpoint);
+    await saveMinimalLlmConfiguration(optionsPage, fakeServer.endpoint);
     const page = await context.newPage();
     await page.goto(fakeServer.pageUrl);
 
-    await triggerTranslation(context, extensionId, page);
+    await triggerCurrentPageTranslation(context, extensionId, page);
 
     const progress = page.getByRole("region", { name: "翻译进度" });
     await expect(
@@ -149,11 +120,11 @@ test("批次限流失败时显示明确原因", async () => {
   });
 
   try {
-    await saveConfiguration(optionsPage, fakeServer.endpoint);
+    await saveMinimalLlmConfiguration(optionsPage, fakeServer.endpoint);
     const page = await context.newPage();
     await page.goto(fakeServer.pageUrl);
 
-    await triggerTranslation(context, extensionId, page);
+    await triggerCurrentPageTranslation(context, extensionId, page);
 
     await expect(
       page
@@ -170,18 +141,18 @@ test("批次超时时显示明确原因", async () => {
   const fakeServer = await startFakeOpenAiServer({
     pageHtml: "<main><p>Slow source.</p></main>",
     responseDelayMs: 6_000,
-    responseBody: completion([{ id: "block-0", text: "Late translation." }]),
+    responseBody: translationCompletion([{ id: "block-0", text: "Late translation." }]),
   });
   const { context, extensionId, optionsPage } = await launchExtension({
     hostPermissions: ["http://127.0.0.1/*"],
   });
 
   try {
-    await saveConfiguration(optionsPage, fakeServer.endpoint);
+    await saveMinimalLlmConfiguration(optionsPage, fakeServer.endpoint);
     const page = await context.newPage();
     await page.goto(fakeServer.pageUrl);
 
-    await triggerTranslation(context, extensionId, page);
+    await triggerCurrentPageTranslation(context, extensionId, page);
 
     await expect(
       page
@@ -197,7 +168,7 @@ test("批次超时时显示明确原因", async () => {
 test("批次 CORS 失败时显示明确原因", async () => {
   const providerServer = await startFakeOpenAiServer({
     cors: false,
-    responseBody: completion([{ id: "block-0", text: "CORS translation." }]),
+    responseBody: translationCompletion([{ id: "block-0", text: "CORS translation." }]),
   });
   const pageServer = await startFakeOpenAiServer({
     pageHtml: "<main><p>CORS source.</p></main>",
@@ -207,11 +178,11 @@ test("批次 CORS 失败时显示明确原因", async () => {
   });
 
   try {
-    await saveConfiguration(optionsPage, providerServer.endpoint);
+    await saveMinimalLlmConfiguration(optionsPage, providerServer.endpoint);
     const page = await context.newPage();
     await page.goto(pageServer.pageUrl);
 
-    await triggerTranslation(context, extensionId, page);
+    await triggerCurrentPageTranslation(context, extensionId, page);
 
     await expect(
       page
@@ -238,11 +209,11 @@ test("批次网络失败时显示明确原因", async () => {
   });
 
   try {
-    await saveConfiguration(optionsPage, unavailableEndpoint);
+    await saveMinimalLlmConfiguration(optionsPage, unavailableEndpoint);
     const page = await context.newPage();
     await page.goto(pageServer.pageUrl);
 
-    await triggerTranslation(context, extensionId, page);
+    await triggerCurrentPageTranslation(context, extensionId, page);
 
     await expect(
       page
@@ -267,11 +238,11 @@ test("目标 LLM 服务的翻译 POST 断流时显示网络失败而不是 CORS"
   });
 
   try {
-    await saveConfiguration(optionsPage, providerServer.endpoint);
+    await saveMinimalLlmConfiguration(optionsPage, providerServer.endpoint);
     const page = await context.newPage();
     await page.goto(pageServer.pageUrl);
 
-    await triggerTranslation(context, extensionId, page);
+    await triggerCurrentPageTranslation(context, extensionId, page);
 
     const progress = page.getByRole("region", { name: "翻译进度" });
     await expect(
@@ -297,11 +268,11 @@ test("批次响应格式无效时显示明确原因", async () => {
   });
 
   try {
-    await saveConfiguration(optionsPage, fakeServer.endpoint);
+    await saveMinimalLlmConfiguration(optionsPage, fakeServer.endpoint);
     const page = await context.newPage();
     await page.goto(fakeServer.pageUrl);
 
-    await triggerTranslation(context, extensionId, page);
+    await triggerCurrentPageTranslation(context, extensionId, page);
 
     await expect(
       page
@@ -326,7 +297,7 @@ test("没有 LLM 配置时批次显示失败而不是完成", async () => {
     const page = await context.newPage();
     await page.goto(pageServer.pageUrl);
 
-    await triggerTranslation(context, extensionId, page);
+    await triggerCurrentPageTranslation(context, extensionId, page);
 
     const progress = page.getByRole("region", { name: "翻译进度" });
     await expect(
@@ -351,7 +322,7 @@ test("用户只手动重试失败批次且扩展默认不自动重试", async ()
     pageHtml: `<main>${paragraphs}</main>`,
     responseSequence: [
       {
-        responseBody: completion(
+        responseBody: translationCompletion(
           Array.from({ length: 10 }, (_, index) => ({
             id: `block-${index}`,
             text: `Completed translation ${index + 1}`,
@@ -361,7 +332,7 @@ test("用户只手动重试失败批次且扩展默认不自动重试", async ()
       { statusCode: 429 },
       {
         delayMs: 250,
-        responseBody: completion([
+        responseBody: translationCompletion([
           { id: "block-10", text: "Recovered translation 11" },
         ]),
       },
@@ -372,11 +343,11 @@ test("用户只手动重试失败批次且扩展默认不自动重试", async ()
   });
 
   try {
-    await saveConfiguration(optionsPage, fakeServer.endpoint);
+    await saveMinimalLlmConfiguration(optionsPage, fakeServer.endpoint);
     const page = await context.newPage();
     await page.goto(fakeServer.pageUrl);
 
-    await triggerTranslation(context, extensionId, page);
+    await triggerCurrentPageTranslation(context, extensionId, page);
 
     const progress = page.getByRole("region", { name: "翻译进度" });
     await expect(progress.getByText("批次 1：已完成")).toBeVisible();
