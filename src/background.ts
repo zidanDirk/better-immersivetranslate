@@ -11,6 +11,8 @@ import {
   insertBilingualTranslations,
   isReadingMode,
   READING_MODE_PRESERVED_CONTENT_SELECTOR,
+  selectionIntersectsDefaultExcludedContent,
+  showSelectedTextTranslation,
   type ReadingMode,
   type SemanticTextBlock,
   type Translation,
@@ -20,6 +22,8 @@ import {
   storeTranslations,
   type TranslationCacheContext,
 } from "./translation-cache.js";
+
+const selectionMenuId = "translate-selected-text";
 
 interface ChatCompletion {
   choices: Array<{ message: { content: string } }>;
@@ -114,6 +118,65 @@ async function setReadingMode(
     args: [mode, READING_MODE_PRESERVED_CONTENT_SELECTOR],
   });
 }
+
+async function translateSelectedText(
+  tabId: number,
+  selectionText: string,
+): Promise<void> {
+  const targetLanguage = chrome.i18n.getUILanguage();
+  const [translation] = await translateBlocks(
+    [{ id: "selected-text", text: selectionText }],
+    targetLanguage,
+  );
+  if (!translation) {
+    return;
+  }
+
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: showSelectedTextTranslation,
+    args: [selectionText, translation.text, targetLanguage],
+  });
+}
+
+chrome.runtime.onInstalled.addListener(() => {
+  chrome.contextMenus.create({
+    id: selectionMenuId,
+    title: "翻译选中文本",
+    contexts: ["selection"],
+  });
+});
+
+async function handleSelectionMenuClick(
+  info: chrome.contextMenus.OnClickData,
+  tab?: chrome.tabs.Tab,
+): Promise<void> {
+  if (
+    info.menuItemId !== selectionMenuId ||
+    typeof info.selectionText !== "string" ||
+    info.editable === true ||
+    (info.frameId !== undefined && info.frameId !== 0) ||
+    tab?.id === undefined
+  ) {
+    return;
+  }
+
+  const selectionCheck = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: selectionIntersectsDefaultExcludedContent,
+    args: [DEFAULT_EXCLUDED_CONTENT_SELECTOR],
+  });
+  if (selectionCheck[0]?.result !== false) {
+    return;
+  }
+
+  await translateSelectedText(tab.id, info.selectionText);
+}
+
+chrome.contextMenus.onClicked.addListener(handleSelectionMenuClick);
+Object.assign(globalThis, {
+  betterImmersiveBackground: { handleSelectionMenuClick },
+});
 
 chrome.runtime.onMessage.addListener(
   (message: unknown, _sender, sendResponse) => {

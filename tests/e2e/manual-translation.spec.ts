@@ -409,7 +409,7 @@ test("Chrome 内置页和本地文件页不会创建翻译任务", async () => {
   }
 });
 
-test("正式扩展默认只请求当前页面权限", async () => {
+test("正式扩展默认只请求当前页面和右键菜单权限", async () => {
   const manifest = JSON.parse(
     await readFile("dist/manifest.json", "utf8"),
   ) as {
@@ -417,7 +417,12 @@ test("正式扩展默认只请求当前页面权限", async () => {
     permissions: string[];
   };
 
-  expect(manifest.permissions).toEqual(["activeTab", "scripting", "storage"]);
+  expect(manifest.permissions).toEqual([
+    "activeTab",
+    "contextMenus",
+    "scripting",
+    "storage",
+  ]);
   expect(manifest.host_permissions).toBeUndefined();
 });
 
