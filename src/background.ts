@@ -22,18 +22,16 @@ import {
   storeTranslations,
   type TranslationCacheContext,
 } from "./translation-cache.js";
+import {
+  createTranslationSystemMessage,
+  loadTranslationInstructions,
+} from "./translation-instructions.js";
 
 const selectionMenuId = "translate-selected-text";
 
 interface ChatCompletion {
   choices: Array<{ message: { content: string } }>;
 }
-
-const translationInstructions = {
-  prompt:
-    "Translate the supplied semantic text blocks. Return JSON only, preserving every block id.",
-  terminologyRules: [],
-} as const;
 
 async function translateBlocks(
   blocks: SemanticTextBlock[],
@@ -44,6 +42,7 @@ async function translateBlocks(
     return [];
   }
 
+  const translationInstructions = await loadTranslationInstructions();
   const cacheContext: TranslationCacheContext = {
     configuration,
     sourceLanguage: "auto",
@@ -65,7 +64,7 @@ async function translateBlocks(
       messages: [
         {
           role: "system",
-          content: translationInstructions.prompt,
+          content: createTranslationSystemMessage(translationInstructions),
         },
         {
           role: "user",

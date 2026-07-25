@@ -96,6 +96,88 @@ h1 {
   gap: 1rem;
 }
 
+.translation-instructions {
+  background: white;
+  border: 1px solid #dfe5de;
+  border-radius: 1rem;
+  margin-bottom: 1rem;
+  padding: 1.5rem;
+}
+
+.translation-instructions h2 {
+  font-size: 1.1rem;
+  margin-bottom: 0.35rem;
+}
+
+.translation-instructions p {
+  color: #667068;
+}
+
+.instruction-actions {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-top: 1rem;
+}
+
+.instruction-actions p {
+  color: #337255;
+  margin-bottom: 0;
+  min-height: 1.25rem;
+}
+
+.terminology-header {
+  align-items: center;
+  border-top: 1px solid #dfe5de;
+  display: flex;
+  justify-content: space-between;
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+}
+
+.terminology-header p {
+  margin-bottom: 0;
+}
+
+.terminology-rule {
+  align-items: center;
+  background: #f7f9f6;
+  border-radius: 0.65rem;
+  display: flex;
+  justify-content: space-between;
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+}
+
+.terminology-rule p,
+.empty-terminology {
+  margin-bottom: 0;
+}
+
+.terminology-actions,
+.terminology-fields {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.terminology-form {
+  border-top: 1px solid #dfe5de;
+  margin-top: 1rem;
+  padding-top: 1rem;
+}
+
+.terminology-form[hidden] {
+  display: none;
+}
+
+.terminology-form h3 {
+  margin-top: 0;
+}
+
+.terminology-fields label {
+  flex: 1;
+}
+
 .cache-management {
   align-items: center;
   background: white;
@@ -243,6 +325,13 @@ textarea:focus {
   }
 
   .cache-management {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .terminology-header,
+  .terminology-rule,
+  .terminology-fields {
     align-items: stretch;
     flex-direction: column;
   }

@@ -9,6 +9,11 @@ import {
   type ConnectionTestResult,
 } from "./connection-test.js";
 import { clearTranslationCache } from "./translation-cache.js";
+import {
+  loadTranslationInstructions,
+  saveTranslationInstructions,
+  type TerminologyRule,
+} from "./translation-instructions.js";
 
 function requireElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
@@ -45,6 +50,39 @@ app.innerHTML = `
     </div>
     <button class="danger" id="clear-translation-cache" type="button">清空翻译缓存</button>
   </section>
+  <section class="translation-instructions" aria-labelledby="translation-prompt-title">
+    <form id="translation-prompt-form">
+      <h2 id="translation-prompt-title">翻译提示词</h2>
+      <p>控制所有翻译任务的风格、格式和行为。提示词仅保存在此浏览器中。</p>
+      <label>
+        全局翻译提示词
+        <textarea name="translationPrompt" rows="5" required></textarea>
+      </label>
+      <div class="instruction-actions">
+        <p id="translation-prompt-status" aria-live="polite"></p>
+        <button class="primary" type="submit">保存翻译提示词</button>
+      </div>
+    </form>
+    <div class="terminology-header">
+      <div>
+        <h2 id="terminology-title">术语表</h2>
+        <p>为原文术语指定固定译法。术语规则仅保存在此浏览器中。</p>
+      </div>
+      <button class="secondary" id="add-terminology-rule" type="button">新增术语规则</button>
+    </div>
+    <div id="terminology-list" aria-live="polite"></div>
+    <form id="terminology-form" class="terminology-form" hidden>
+      <h3 id="terminology-form-title">新增术语规则</h3>
+      <div class="terminology-fields">
+        <label>原文术语<input name="terminologySource" autocomplete="off" required /></label>
+        <label>固定译法<input name="terminologyTarget" autocomplete="off" required /></label>
+      </div>
+      <div class="form-actions">
+        <button class="secondary" id="cancel-terminology-rule" type="button">取消</button>
+        <button class="primary" type="submit">保存术语规则</button>
+      </div>
+    </form>
+  </section>
   <section aria-live="polite" id="configuration-list" class="configuration-list"></section>
   <form id="configuration-form" class="configuration-form" hidden>
     <h2 id="form-title">新增 LLM 配置</h2>
@@ -74,7 +112,35 @@ const clearCacheButton = requireElement<HTMLButtonElement>(
   "#clear-translation-cache",
 );
 const cacheStatus = requireElement<HTMLElement>("#cache-status");
+const translationPromptForm = requireElement<HTMLFormElement>(
+  "#translation-prompt-form",
+);
+const translationPromptField = requireElement<HTMLTextAreaElement>(
+  '[name="translationPrompt"]',
+);
+const translationPromptStatus = requireElement<HTMLElement>(
+  "#translation-prompt-status",
+);
+const terminologyList = requireElement<HTMLElement>("#terminology-list");
+const terminologyForm =
+  requireElement<HTMLFormElement>("#terminology-form");
+const terminologyFormTitle = requireElement<HTMLElement>(
+  "#terminology-form-title",
+);
+const terminologySourceField = requireElement<HTMLInputElement>(
+  '[name="terminologySource"]',
+);
+const terminologyTargetField = requireElement<HTMLInputElement>(
+  '[name="terminologyTarget"]',
+);
+const addTerminologyRuleButton = requireElement<HTMLButtonElement>(
+  "#add-terminology-rule",
+);
+const cancelTerminologyRuleButton = requireElement<HTMLButtonElement>(
+  "#cancel-terminology-rule",
+);
 let editingConfigurationId: string | null = null;
+let editingTerminologyRuleId: string | null = null;
 
 function parseObject<T extends Record<string, unknown>>(
   value: FormDataEntryValue | null,
@@ -145,6 +211,68 @@ async function renderConfigurations(): Promise<void> {
       return article;
     }),
   );
+}
+
+async function renderTerminologyRules(): Promise<void> {
+  const instructions = await loadTranslationInstructions();
+  if (instructions.terminologyRules.length === 0) {
+    terminologyList.innerHTML = '<p class="empty-terminology">还没有术语规则</p>';
+    return;
+  }
+
+  terminologyList.replaceChildren(
+    ...instructions.terminologyRules.map((rule) => {
+      const row = document.createElement("div");
+      row.className = "terminology-rule";
+      const terms = document.createElement("p");
+      terms.textContent = `${rule.source} → ${rule.target}`;
+      const actions = document.createElement("div");
+      actions.className = "terminology-actions";
+      const editButton = document.createElement("button");
+      editButton.className = "secondary";
+      editButton.type = "button";
+      editButton.textContent = "编辑";
+      editButton.setAttribute("aria-label", `编辑术语规则 ${rule.source}`);
+      editButton.addEventListener("click", () => openTerminologyForm(rule));
+      const deleteButton = document.createElement("button");
+      deleteButton.className = "danger";
+      deleteButton.type = "button";
+      deleteButton.textContent = "删除";
+      deleteButton.setAttribute("aria-label", `删除术语规则 ${rule.source}`);
+      deleteButton.addEventListener("click", async () => {
+        await saveTranslationInstructions({
+          ...instructions,
+          terminologyRules: instructions.terminologyRules.filter(
+            ({ id }) => id !== rule.id,
+          ),
+        });
+        await renderTerminologyRules();
+      });
+      actions.append(editButton, deleteButton);
+      row.append(terms, actions);
+      return row;
+    }),
+  );
+}
+
+function openTerminologyForm(rule?: TerminologyRule): void {
+  editingTerminologyRuleId = rule?.id ?? null;
+  terminologyForm.reset();
+  terminologyFormTitle.textContent = rule
+    ? "编辑术语规则"
+    : "新增术语规则";
+  terminologySourceField.value = rule?.source ?? "";
+  terminologyTargetField.value = rule?.target ?? "";
+  terminologyForm.hidden = false;
+  addTerminologyRuleButton.hidden = true;
+  terminologySourceField.focus();
+}
+
+function closeTerminologyForm(): void {
+  editingTerminologyRuleId = null;
+  terminologyForm.reset();
+  terminologyForm.hidden = true;
+  addTerminologyRuleButton.hidden = false;
 }
 
 function describeConnectionResult(result: ConnectionTestResult): string {
@@ -219,6 +347,44 @@ clearCacheButton.addEventListener("click", async () => {
   }
 });
 
+translationPromptForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const instructions = await loadTranslationInstructions();
+  await saveTranslationInstructions({
+    ...instructions,
+    prompt: translationPromptField.value,
+  });
+  translationPromptStatus.textContent = "翻译提示词已保存";
+});
+
+addTerminologyRuleButton.addEventListener("click", () => {
+  openTerminologyForm();
+});
+
+cancelTerminologyRuleButton.addEventListener("click", () => {
+  closeTerminologyForm();
+});
+
+terminologyForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const instructions = await loadTranslationInstructions();
+  const rule = {
+    id: editingTerminologyRuleId ?? crypto.randomUUID(),
+    source: terminologySourceField.value.trim(),
+    target: terminologyTargetField.value.trim(),
+  };
+  await saveTranslationInstructions({
+    ...instructions,
+    terminologyRules: editingTerminologyRuleId
+      ? instructions.terminologyRules.map((existing) =>
+          existing.id === editingTerminologyRuleId ? rule : existing,
+        )
+      : [...instructions.terminologyRules, rule],
+  });
+  closeTerminologyForm();
+  await renderTerminologyRules();
+});
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const data = new FormData(form);
@@ -240,4 +406,7 @@ form.addEventListener("submit", async (event) => {
   await renderConfigurations();
 });
 
+const translationInstructions = await loadTranslationInstructions();
+translationPromptField.value = translationInstructions.prompt;
+await renderTerminologyRules();
 await renderConfigurations();
