@@ -109,7 +109,7 @@ test("用户主动触发后翻译当前静态网页", async () => {
   }
 });
 
-test("正式扩展默认只请求当前页面权限", async () => {
+test("正式扩展默认只请求当前页面和右键菜单权限", async () => {
   const manifest = JSON.parse(
     await readFile("dist/manifest.json", "utf8"),
   ) as {
@@ -117,6 +117,11 @@ test("正式扩展默认只请求当前页面权限", async () => {
     permissions: string[];
   };
 
-  expect(manifest.permissions).toEqual(["activeTab", "scripting", "storage"]);
+  expect(manifest.permissions).toEqual([
+    "activeTab",
+    "contextMenus",
+    "scripting",
+    "storage",
+  ]);
   expect(manifest.host_permissions).toBeUndefined();
 });
