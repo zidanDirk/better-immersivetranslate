@@ -17,7 +17,6 @@ export type ConnectionTestResult =
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-
 function isOpenAiChatCompletion(value: unknown): boolean {
   if (!isRecord(value) || !Array.isArray(value.choices)) {
     return false;

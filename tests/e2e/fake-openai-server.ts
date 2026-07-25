@@ -6,12 +6,19 @@ export interface ReceivedOpenAiRequest {
   body: unknown;
 }
 
+export interface FakeOpenAiResponse {
+  delayMs?: number;
+  responseBody?: unknown;
+  statusCode?: number;
+}
+
 export async function startFakeOpenAiServer(options?: {
   cors?: boolean;
   disconnectPost?: boolean;
   pageHtml?: string;
   responseDelayMs?: number;
   responseBody?: unknown;
+  responseSequence?: FakeOpenAiResponse[];
   statusCode?: number;
 }): Promise<{
   endpoint: string;
@@ -69,18 +76,25 @@ export async function startFakeOpenAiServer(options?: {
       };
       receivedRequests.push(receivedRequest);
       resolveRequest(receivedRequest);
+      const plannedResponse =
+        options?.responseSequence?.[receivedRequests.length - 1];
       setTimeout(() => {
-        response.writeHead(options?.statusCode ?? 200, {
-          "Content-Type": "application/json",
-        });
+        response.writeHead(
+          plannedResponse?.statusCode ?? options?.statusCode ?? 200,
+          {
+            "Content-Type": "application/json",
+          },
+        );
         response.end(
           JSON.stringify(
-            options && "responseBody" in options
-              ? options.responseBody
-              : { choices: [{ message: { content: "OK" } }] },
+            plannedResponse && "responseBody" in plannedResponse
+              ? plannedResponse.responseBody
+              : options && "responseBody" in options
+                ? options.responseBody
+                : { choices: [{ message: { content: "OK" } }] },
           ),
         );
-      }, options?.responseDelayMs ?? 0);
+      }, plannedResponse?.delayMs ?? options?.responseDelayMs ?? 0);
     });
   });
 
