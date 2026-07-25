@@ -1,7 +1,12 @@
 import { loadLlmConfigurations } from "./llm-configuration.js";
 import {
-  collectBasicSemanticTextBlocks,
+  applyReadingMode,
+  collectTranslatableSemanticTextBlocks,
+  DEFAULT_EXCLUDED_CONTENT_SELECTOR,
   insertBilingualTranslations,
+  isReadingMode,
+  READING_MODE_PRESERVED_CONTENT_SELECTOR,
+  type ReadingMode,
   type SemanticTextBlock,
   type Translation,
 } from "./page-translation.js";
@@ -58,7 +63,8 @@ async function translateBlocks(
 async function translateCurrentPage(tabId: number): Promise<void> {
   const extraction = await chrome.scripting.executeScript({
     target: { tabId },
-    func: collectBasicSemanticTextBlocks,
+    func: collectTranslatableSemanticTextBlocks,
+    args: [DEFAULT_EXCLUDED_CONTENT_SELECTOR],
   });
   const blocks = (extraction[0]?.result ?? []) as SemanticTextBlock[];
   if (blocks.length === 0) {
@@ -76,6 +82,17 @@ async function translateCurrentPage(tabId: number): Promise<void> {
   });
 }
 
+async function setReadingMode(
+  tabId: number,
+  mode: ReadingMode,
+): Promise<void> {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: applyReadingMode,
+    args: [mode, READING_MODE_PRESERVED_CONTENT_SELECTOR],
+  });
+}
+
 chrome.runtime.onMessage.addListener(
   (message: unknown, _sender, sendResponse) => {
     if (
@@ -87,6 +104,23 @@ chrome.runtime.onMessage.addListener(
       typeof message.tabId === "number"
     ) {
       void translateCurrentPage(message.tabId).then(
+        () => sendResponse({ kind: "complete" }),
+        () => sendResponse({ kind: "failed" }),
+      );
+      return true;
+    }
+
+    if (
+      typeof message === "object" &&
+      message !== null &&
+      "kind" in message &&
+      message.kind === "set-reading-mode" &&
+      "tabId" in message &&
+      typeof message.tabId === "number" &&
+      "mode" in message &&
+      isReadingMode(message.mode)
+    ) {
+      void setReadingMode(message.tabId, message.mode).then(
         () => sendResponse({ kind: "complete" }),
         () => sendResponse({ kind: "failed" }),
       );
