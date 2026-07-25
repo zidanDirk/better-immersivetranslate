@@ -17,6 +17,18 @@ async function saveConfiguration(page: Page, endpoint: string): Promise<void> {
   await page.getByRole("button", { name: "保存配置" }).click();
 }
 
+async function translateCurrentPage(
+  context: Awaited<ReturnType<typeof launchExtension>>["context"],
+  extensionId: string,
+  page: Page,
+): Promise<void> {
+  const popup = await context.newPage();
+  await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+  await page.bringToFront();
+  await popup.getByRole("button", { name: "翻译当前网页" }).click();
+  await expect.poll(() => popup.isClosed()).toBe(true);
+}
+
 function requestBody(request: ReceivedOpenAiRequest): {
   messages: Array<{ role: string; content: string }>;
   model: string;
@@ -119,4 +131,147 @@ test("正式扩展默认只请求当前页面权限", async () => {
 
   expect(manifest.permissions).toEqual(["activeTab", "scripting", "storage"]);
   expect(manifest.host_permissions).toBeUndefined();
+});
+
+test("重复的翻译任务复用本地翻译缓存", async () => {
+  const fakeServer = await startFakeOpenAiServer({
+    pageHtml: "<main><p>Hello world.</p></main>",
+    responseBody: {
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              translations: [{ id: "block-0", text: "你好，世界。" }],
+            }),
+          },
+        },
+      ],
+    },
+  });
+  const { context, extensionId, optionsPage } = await launchExtension({
+    browserLanguage: "zh-CN",
+    hostPermissions: ["http://127.0.0.1/*"],
+  });
+
+  try {
+    await saveConfiguration(optionsPage, fakeServer.endpoint);
+    const firstPage = await context.newPage();
+    await firstPage.goto(fakeServer.pageUrl);
+    await translateCurrentPage(context, extensionId, firstPage);
+    await expect(firstPage.getByText("你好，世界。")).toBeVisible();
+    await expect.poll(() => fakeServer.receivedRequests).toHaveLength(1);
+
+    const repeatedPage = await context.newPage();
+    await repeatedPage.goto(fakeServer.pageUrl);
+    await translateCurrentPage(context, extensionId, repeatedPage);
+
+    await expect(repeatedPage.getByText("你好，世界。")).toBeVisible();
+    await expect
+      .poll(() => fakeServer.receivedRequests, { timeout: 500 })
+      .toHaveLength(1);
+  } finally {
+    await context.close();
+    await fakeServer.close();
+  }
+});
+
+test("用户可以一键清空本地翻译缓存", async () => {
+  const fakeServer = await startFakeOpenAiServer({
+    pageHtml: "<main><p>Hello world.</p></main>",
+    responseBody: {
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              translations: [{ id: "block-0", text: "你好，世界。" }],
+            }),
+          },
+        },
+      ],
+    },
+  });
+  const { context, extensionId, optionsPage } = await launchExtension({
+    browserLanguage: "zh-CN",
+    hostPermissions: ["http://127.0.0.1/*"],
+  });
+
+  try {
+    await saveConfiguration(optionsPage, fakeServer.endpoint);
+    const firstPage = await context.newPage();
+    await firstPage.goto(fakeServer.pageUrl);
+    await translateCurrentPage(context, extensionId, firstPage);
+    await expect.poll(() => fakeServer.receivedRequests).toHaveLength(1);
+
+    await optionsPage.bringToFront();
+    await optionsPage
+      .getByRole("button", { name: "清空翻译缓存" })
+      .click();
+    await expect(optionsPage.getByText("翻译缓存已清空")).toBeVisible();
+
+    const pageAfterClearing = await context.newPage();
+    await pageAfterClearing.goto(fakeServer.pageUrl);
+    await translateCurrentPage(context, extensionId, pageAfterClearing);
+
+    await expect(pageAfterClearing.getByText("你好，世界。")).toBeVisible();
+    await expect.poll(() => fakeServer.receivedRequests).toHaveLength(2);
+  } finally {
+    await context.close();
+    await fakeServer.close();
+  }
+});
+
+test("模型和相关请求参数变化后不复用旧译文", async () => {
+  const fakeServer = await startFakeOpenAiServer({
+    pageHtml: "<main><p>Hello world.</p></main>",
+    responseBody: {
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              translations: [{ id: "block-0", text: "你好，世界。" }],
+            }),
+          },
+        },
+      ],
+    },
+  });
+  const { context, extensionId, optionsPage } = await launchExtension({
+    browserLanguage: "zh-CN",
+    hostPermissions: ["http://127.0.0.1/*"],
+  });
+
+  try {
+    await saveConfiguration(optionsPage, fakeServer.endpoint);
+    const firstPage = await context.newPage();
+    await firstPage.goto(fakeServer.pageUrl);
+    await translateCurrentPage(context, extensionId, firstPage);
+    await expect.poll(() => fakeServer.receivedRequests).toHaveLength(1);
+
+    await optionsPage.bringToFront();
+    await optionsPage
+      .getByRole("button", { name: "编辑 静态网页翻译" })
+      .click();
+    await optionsPage.getByLabel("模型").fill("changed-model");
+    await optionsPage
+      .getByLabel("请求参数")
+      .fill('{"temperature":0.7,"top_p":0.8}');
+    await optionsPage.getByRole("button", { name: "保存配置" }).click();
+
+    const pageAfterConfigurationChange = await context.newPage();
+    await pageAfterConfigurationChange.goto(fakeServer.pageUrl);
+    await translateCurrentPage(
+      context,
+      extensionId,
+      pageAfterConfigurationChange,
+    );
+
+    await expect.poll(() => fakeServer.receivedRequests).toHaveLength(2);
+    expect(requestBody(fakeServer.receivedRequests[1]!)).toMatchObject({
+      model: "changed-model",
+      temperature: 0.7,
+    });
+  } finally {
+    await context.close();
+    await fakeServer.close();
+  }
 });

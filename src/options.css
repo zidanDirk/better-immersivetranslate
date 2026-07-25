@@ -96,6 +96,34 @@ h1 {
   gap: 1rem;
 }
 
+.cache-management {
+  align-items: center;
+  background: white;
+  border: 1px solid #dfe5de;
+  border-radius: 1rem;
+  display: flex;
+  gap: 2rem;
+  justify-content: space-between;
+  margin-bottom: 1rem;
+  padding: 1.25rem;
+}
+
+.cache-management h2 {
+  font-size: 1rem;
+  margin-bottom: 0.35rem;
+}
+
+.cache-management p {
+  color: #667068;
+  margin-bottom: 0;
+}
+
+.cache-management .cache-status {
+  color: #337255;
+  font-size: 0.9rem;
+  min-height: 1.25rem;
+}
+
 .security-notice {
   align-items: start;
   background: #e7f1eb;
@@ -210,6 +238,11 @@ textarea:focus {
   }
 
   .page-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .cache-management {
     align-items: stretch;
     flex-direction: column;
   }
