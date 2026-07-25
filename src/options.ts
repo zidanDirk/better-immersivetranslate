@@ -14,6 +14,10 @@ import {
   saveTranslationInstructions,
   type TerminologyRule,
 } from "./translation-instructions.js";
+import {
+  loadGlobalTranslationPreferences,
+  saveGlobalTranslationPreferences,
+} from "./translation-preferences.js";
 
 function requireElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
@@ -49,6 +53,20 @@ app.innerHTML = `
       <p class="cache-status" id="cache-status" aria-live="polite"></p>
     </div>
     <button class="danger" id="clear-translation-cache" type="button">清空翻译缓存</button>
+  </section>
+  <section class="global-preferences" aria-labelledby="global-preferences-title">
+    <form id="global-target-language-form">
+      <h2 id="global-preferences-title">全局翻译偏好</h2>
+      <p>未设置时使用浏览器语言；网站覆盖设置可以为单个网站指定其他目标语言。</p>
+      <label>
+        全局目标语言
+        <input name="globalTargetLanguage" placeholder="例如 zh-CN、en 或 ja" autocomplete="off" />
+      </label>
+      <div class="instruction-actions">
+        <p id="global-target-language-status" aria-live="polite"></p>
+        <button class="primary" type="submit">保存全局目标语言</button>
+      </div>
+    </form>
   </section>
   <section class="translation-instructions" aria-labelledby="translation-prompt-title">
     <form id="translation-prompt-form">
@@ -112,6 +130,15 @@ const clearCacheButton = requireElement<HTMLButtonElement>(
   "#clear-translation-cache",
 );
 const cacheStatus = requireElement<HTMLElement>("#cache-status");
+const globalTargetLanguageForm = requireElement<HTMLFormElement>(
+  "#global-target-language-form",
+);
+const globalTargetLanguageField = requireElement<HTMLInputElement>(
+  '[name="globalTargetLanguage"]',
+);
+const globalTargetLanguageStatus = requireElement<HTMLElement>(
+  "#global-target-language-status",
+);
 const translationPromptForm = requireElement<HTMLFormElement>(
   "#translation-prompt-form",
 );
@@ -347,6 +374,14 @@ clearCacheButton.addEventListener("click", async () => {
   }
 });
 
+globalTargetLanguageForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  await saveGlobalTranslationPreferences({
+    targetLanguage: globalTargetLanguageField.value.trim(),
+  });
+  globalTargetLanguageStatus.textContent = "全局目标语言已保存";
+});
+
 translationPromptForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   const instructions = await loadTranslationInstructions();
@@ -408,5 +443,8 @@ form.addEventListener("submit", async (event) => {
 
 const translationInstructions = await loadTranslationInstructions();
 translationPromptField.value = translationInstructions.prompt;
+const globalTranslationPreferences =
+  await loadGlobalTranslationPreferences();
+globalTargetLanguageField.value = globalTranslationPreferences.targetLanguage;
 await renderTerminologyRules();
 await renderConfigurations();

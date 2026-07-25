@@ -15,6 +15,26 @@
       </button>
       <button type="button" data-reading-mode="original-only">仅原文</button>
     </fieldset>
+    <button id="open-website-override" type="button">网站覆盖设置</button>
+    <form id="website-override-form" hidden>
+      <h2>网站覆盖设置</h2>
+      <p id="website-origin"></p>
+      <label>
+        网站目标语言
+        <input name="websiteTargetLanguage" autocomplete="off" placeholder="留空时使用全局设置" />
+      </label>
+      <label>
+        网站翻译提示词
+        <textarea name="websiteTranslationPrompt" rows="4" placeholder="留空时使用全局翻译提示词"></textarea>
+      </label>
+      <label>
+        <input name="automaticTranslation" type="checkbox" />
+        网站自动翻译
+      </label>
+      <p id="website-permission-request"></p>
+      <p id="website-override-status" aria-live="polite"></p>
+      <button type="submit">保存网站覆盖设置</button>
+    </form>
     <script type="module" src="popup.js"></script>
   </body>
 </html>

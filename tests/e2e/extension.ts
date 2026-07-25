@@ -11,6 +11,7 @@ import path from "node:path";
 export async function launchExtension(options?: {
   browserLanguage?: string;
   hostPermissions?: string[];
+  tabUrlAccess?: boolean;
 }): Promise<{
   context: BrowserContext;
   extensionId: string;
@@ -19,7 +20,7 @@ export async function launchExtension(options?: {
 }> {
   let extensionPath = path.resolve("dist");
   let temporaryExtensionPath: string | undefined;
-  if (options?.hostPermissions) {
+  if (options?.hostPermissions || options?.tabUrlAccess) {
     temporaryExtensionPath = await mkdtemp(
       path.join(tmpdir(), "better-immersivetranslate-e2e-"),
     );
@@ -29,7 +30,15 @@ export async function launchExtension(options?: {
       string,
       unknown
     >;
-    manifest.host_permissions = options.hostPermissions;
+    if (options.hostPermissions) {
+      manifest.host_permissions = options.hostPermissions;
+    }
+    if (options.tabUrlAccess) {
+      manifest.permissions = [
+        ...((manifest.permissions as string[]) ?? []),
+        "tabs",
+      ];
+    }
     await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
     extensionPath = temporaryExtensionPath;
   }
@@ -47,17 +56,18 @@ export async function launchExtension(options?: {
     args: extensionArguments,
     locale: options?.browserLanguage,
   });
-  if (temporaryExtensionPath) {
-    context.on("close", () => {
-      void rm(temporaryExtensionPath, { force: true, recursive: true });
-    });
-  }
 
   let worker = context.serviceWorkers()[0];
   if (!worker) {
     worker = await context.waitForEvent("serviceworker", { timeout: 5_000 });
   }
   const extensionId = new URL(worker.url()).host;
+
+  if (temporaryExtensionPath) {
+    context.on("close", () => {
+      void rm(temporaryExtensionPath, { force: true, recursive: true });
+    });
+  }
 
   const optionsPage = await context.newPage();
   await optionsPage.goto(`chrome-extension://${extensionId}/options.html`);

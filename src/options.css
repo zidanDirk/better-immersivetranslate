@@ -96,7 +96,8 @@ h1 {
   gap: 1rem;
 }
 
-.translation-instructions {
+.translation-instructions,
+.global-preferences {
   background: white;
   border: 1px solid #dfe5de;
   border-radius: 1rem;
@@ -104,12 +105,14 @@ h1 {
   padding: 1.5rem;
 }
 
-.translation-instructions h2 {
+.translation-instructions h2,
+.global-preferences h2 {
   font-size: 1.1rem;
   margin-bottom: 0.35rem;
 }
 
-.translation-instructions p {
+.translation-instructions p,
+.global-preferences p {
   color: #667068;
 }
 

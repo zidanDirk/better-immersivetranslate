@@ -14,6 +14,7 @@ import {
 import {
   createTranslationSystemMessage,
   loadTranslationInstructions,
+  type TranslationInstructions,
 } from "./translation-instructions.js";
 
 export type TranslationBatchResult =
@@ -76,12 +77,14 @@ function readTranslations(
 export async function translateSemanticTextBatch(
   blocks: SemanticTextBlock[],
   targetLanguage: string,
+  suppliedInstructions?: TranslationInstructions,
 ): Promise<TranslationBatchResult> {
   const [configuration] = await loadLlmConfigurations();
   if (!configuration) {
     return failed("configuration");
   }
-  const instructions = await loadTranslationInstructions();
+  const instructions =
+    suppliedInstructions ?? (await loadTranslationInstructions());
   const cacheContext: TranslationCacheContext = {
     configuration,
     sourceLanguage: "auto",

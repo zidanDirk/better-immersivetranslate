@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "description": "使用自带 Key 的 LLM 配置翻译网页。",
   "permissions": ["activeTab", "contextMenus", "scripting", "storage"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
   "action": {
     "default_popup": "popup.html",
     "default_title": "翻译当前网页"
