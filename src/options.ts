@@ -8,6 +8,7 @@ import {
   testLlmConnection,
   type ConnectionTestResult,
 } from "./connection-test.js";
+import { clearTranslationCache } from "./translation-cache.js";
 
 function requireElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
@@ -36,6 +37,14 @@ app.innerHTML = `
       <p>浏览器扩展环境无法绝对隐藏 API Key，请只在可信设备上使用。</p>
     </div>
   </aside>
+  <section class="cache-management" aria-labelledby="cache-title">
+    <div>
+      <h2 id="cache-title">翻译缓存</h2>
+      <p>译文仅保存在此浏览器中。清空后，重复内容需要重新调用 LLM。</p>
+      <p class="cache-status" id="cache-status" aria-live="polite"></p>
+    </div>
+    <button class="danger" id="clear-translation-cache" type="button">清空翻译缓存</button>
+  </section>
   <section aria-live="polite" id="configuration-list" class="configuration-list"></section>
   <form id="configuration-form" class="configuration-form" hidden>
     <h2 id="form-title">新增 LLM 配置</h2>
@@ -61,6 +70,10 @@ const addButton = requireElement<HTMLButtonElement>("#add-configuration");
 const cancelButton = requireElement<HTMLButtonElement>(
   "#cancel-configuration",
 );
+const clearCacheButton = requireElement<HTMLButtonElement>(
+  "#clear-translation-cache",
+);
+const cacheStatus = requireElement<HTMLElement>("#cache-status");
 let editingConfigurationId: string | null = null;
 
 function parseObject<T extends Record<string, unknown>>(
@@ -194,6 +207,16 @@ cancelButton.addEventListener("click", () => {
   form.reset();
   form.hidden = true;
   addButton.hidden = false;
+});
+
+clearCacheButton.addEventListener("click", async () => {
+  clearCacheButton.disabled = true;
+  try {
+    await clearTranslationCache();
+    cacheStatus.textContent = "翻译缓存已清空";
+  } finally {
+    clearCacheButton.disabled = false;
+  }
 });
 
 form.addEventListener("submit", async (event) => {

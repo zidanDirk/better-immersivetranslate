@@ -1,5 +1,10 @@
 import { loadLlmConfigurations } from "./llm-configuration.js";
 import {
+  chatCompletionsUrl,
+  createLlmRequestHeaders,
+  effectiveRequestParameters,
+} from "./llm-request.js";
+import {
   applyReadingMode,
   collectTranslatableSemanticTextBlocks,
   DEFAULT_EXCLUDED_CONTENT_SELECTOR,
@@ -10,14 +15,21 @@ import {
   type SemanticTextBlock,
   type Translation,
 } from "./page-translation.js";
+import {
+  findCachedTranslations,
+  storeTranslations,
+  type TranslationCacheContext,
+} from "./translation-cache.js";
 
 interface ChatCompletion {
   choices: Array<{ message: { content: string } }>;
 }
 
-function chatCompletionsUrl(endpoint: string): string {
-  return `${endpoint.replace(/\/+$/, "")}/chat/completions`;
-}
+const translationInstructions = {
+  prompt:
+    "Translate the supplied semantic text blocks. Return JSON only, preserving every block id.",
+  terminologyRules: [],
+} as const;
 
 async function translateBlocks(
   blocks: SemanticTextBlock[],
@@ -28,27 +40,35 @@ async function translateBlocks(
     return [];
   }
 
-  const headers = new Headers(configuration.customHeaders);
-  headers.set("Authorization", `Bearer ${configuration.apiKey}`);
-  headers.set("Content-Type", "application/json");
+  const cacheContext: TranslationCacheContext = {
+    configuration,
+    sourceLanguage: "auto",
+    targetLanguage,
+    instructions: translationInstructions,
+  };
+  const { cachedTranslations, uncachedBlocks } =
+    await findCachedTranslations(blocks, cacheContext);
+  if (uncachedBlocks.length === 0) {
+    return cachedTranslations;
+  }
+
   const response = await fetch(chatCompletionsUrl(configuration.endpoint), {
     method: "POST",
-    headers,
+    headers: createLlmRequestHeaders(configuration),
     body: JSON.stringify({
-      ...configuration.requestParameters,
+      ...effectiveRequestParameters(configuration.requestParameters),
       model: configuration.model,
       messages: [
         {
           role: "system",
-          content:
-            "Translate the supplied semantic text blocks. Return JSON only, preserving every block id.",
+          content: translationInstructions.prompt,
         },
         {
           role: "user",
           content: JSON.stringify({
-            sourceLanguage: "auto",
+            sourceLanguage: cacheContext.sourceLanguage,
             targetLanguage,
-            blocks,
+            blocks: uncachedBlocks,
           }),
         },
       ],
@@ -57,7 +77,9 @@ async function translateBlocks(
   const completion = (await response.json()) as ChatCompletion;
   const content = completion.choices[0]?.message.content ?? "{}";
   const result = JSON.parse(content) as { translations?: Translation[] };
-  return result.translations ?? [];
+  const translations = result.translations ?? [];
+  await storeTranslations(uncachedBlocks, translations, cacheContext);
+  return [...cachedTranslations, ...translations];
 }
 
 async function translateCurrentPage(tabId: number): Promise<void> {

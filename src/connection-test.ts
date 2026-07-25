@@ -1,4 +1,9 @@
 import type { LlmConfiguration } from "./llm-configuration.js";
+import {
+  chatCompletionsUrl,
+  createLlmRequestHeaders,
+  effectiveRequestParameters,
+} from "./llm-request.js";
 
 export type ConnectionTestResult =
   | { kind: "success" }
@@ -26,14 +31,6 @@ function isOpenAiChatCompletion(value: unknown): boolean {
   return typeof firstChoice.message.content === "string";
 }
 
-function buildChatCompletionsUrl(endpoint: string): string {
-  const url = new URL(endpoint);
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new TypeError("LLM 配置只支持 HTTP(S) 服务地址");
-  }
-  return `${url.toString().replace(/\/+$/, "")}/chat/completions`;
-}
-
 async function canReachChatCompletions(url: string): Promise<boolean> {
   try {
     await fetch(url, {
@@ -56,10 +53,8 @@ export async function testLlmConnection(
   let headers: Headers;
 
   try {
-    url = buildChatCompletionsUrl(configuration.endpoint);
-    headers = new Headers(configuration.customHeaders);
-    headers.set("Authorization", `Bearer ${configuration.apiKey}`);
-    headers.set("Content-Type", "application/json");
+    url = chatCompletionsUrl(configuration.endpoint);
+    headers = createLlmRequestHeaders(configuration);
   } catch {
     return { kind: "invalid-configuration" };
   }
@@ -70,7 +65,7 @@ export async function testLlmConnection(
       method: "POST",
       headers,
       body: JSON.stringify({
-        ...configuration.requestParameters,
+        ...effectiveRequestParameters(configuration.requestParameters),
         model: configuration.model,
         messages: [{ role: "user", content: "Reply with OK." }],
       }),
