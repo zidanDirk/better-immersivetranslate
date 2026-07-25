@@ -1,58 +1,65 @@
-import { loadLlmConfigurations } from "./llm-configuration.js";
 import {
   collectBasicSemanticTextBlocks,
+  initializeTranslationProgress,
   insertBilingualTranslations,
+  updateTranslationBatchProgress,
+  type RetryTranslationBatch,
   type SemanticTextBlock,
-  type Translation,
 } from "./page-translation.js";
+import { translateSemanticTextBatch } from "./translation-provider.js";
+import { isRecord } from "./unknown-value.js";
 
-interface ChatCompletion {
-  choices: Array<{ message: { content: string } }>;
+const translationBatchSize = 10;
+
+function isSemanticTextBlock(value: unknown): value is SemanticTextBlock {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.text === "string"
+  );
 }
 
-function chatCompletionsUrl(endpoint: string): string {
-  return `${endpoint.replace(/\/+$/, "")}/chat/completions`;
-}
+async function runTranslationBatch(
+  tabId: number,
+  batchIndex: number,
+  retryBatch: RetryTranslationBatch,
+): Promise<void> {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: updateTranslationBatchProgress,
+    args: [batchIndex, { status: "processing" }],
+  });
 
-async function translateBlocks(
-  blocks: SemanticTextBlock[],
-  targetLanguage: string,
-): Promise<Translation[]> {
-  const [configuration] = await loadLlmConfigurations();
-  if (!configuration) {
-    return [];
-  }
-
-  const headers = new Headers(configuration.customHeaders);
-  headers.set("Authorization", `Bearer ${configuration.apiKey}`);
-  headers.set("Content-Type", "application/json");
-  const response = await fetch(chatCompletionsUrl(configuration.endpoint), {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      ...configuration.requestParameters,
-      model: configuration.model,
-      messages: [
+  const result = await translateSemanticTextBatch(
+    retryBatch.blocks,
+    retryBatch.targetLanguage,
+  );
+  if (result.kind === "failed") {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: updateTranslationBatchProgress,
+      args: [
+        batchIndex,
         {
-          role: "system",
-          content:
-            "Translate the supplied semantic text blocks. Return JSON only, preserving every block id.",
-        },
-        {
-          role: "user",
-          content: JSON.stringify({
-            sourceLanguage: "auto",
-            targetLanguage,
-            blocks,
-          }),
+          status: "failed",
+          failureKind: result.failureKind,
+          retryBatch,
         },
       ],
-    }),
+    });
+    return;
+  }
+
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: insertBilingualTranslations,
+    args: [result.translations, retryBatch.targetLanguage],
   });
-  const completion = (await response.json()) as ChatCompletion;
-  const content = completion.choices[0]?.message.content ?? "{}";
-  const result = JSON.parse(content) as { translations?: Translation[] };
-  return result.translations ?? [];
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    func: updateTranslationBatchProgress,
+    args: [batchIndex, { status: "complete" }],
+  });
 }
 
 async function translateCurrentPage(tabId: number): Promise<void> {
@@ -65,28 +72,52 @@ async function translateCurrentPage(tabId: number): Promise<void> {
     return;
   }
 
-  const translations = await translateBlocks(
-    blocks,
-    chrome.i18n.getUILanguage(),
-  );
+  const batches: SemanticTextBlock[][] = [];
+  for (let index = 0; index < blocks.length; index += translationBatchSize) {
+    batches.push(blocks.slice(index, index + translationBatchSize));
+  }
   await chrome.scripting.executeScript({
     target: { tabId },
-    func: insertBilingualTranslations,
-    args: [translations, chrome.i18n.getUILanguage()],
+    func: initializeTranslationProgress,
+    args: [batches.length],
   });
+
+  const targetLanguage = chrome.i18n.getUILanguage();
+  for (const [batchIndex, batch] of batches.entries()) {
+    await runTranslationBatch(tabId, batchIndex, {
+      blocks: batch,
+      targetLanguage,
+    });
+  }
 }
 
 chrome.runtime.onMessage.addListener(
-  (message: unknown, _sender, sendResponse) => {
+  (message: unknown, sender, sendResponse) => {
     if (
-      typeof message === "object" &&
-      message !== null &&
-      "kind" in message &&
+      isRecord(message) &&
       message.kind === "translate-current-page" &&
-      "tabId" in message &&
       typeof message.tabId === "number"
     ) {
       void translateCurrentPage(message.tabId).then(
+        () => sendResponse({ kind: "complete" }),
+        () => sendResponse({ kind: "failed" }),
+      );
+      return true;
+    }
+
+    if (
+      isRecord(message) &&
+      message.kind === "retry-translation-batch" &&
+      typeof message.batchIndex === "number" &&
+      Array.isArray(message.blocks) &&
+      message.blocks.every(isSemanticTextBlock) &&
+      typeof message.targetLanguage === "string" &&
+      sender.tab?.id !== undefined
+    ) {
+      void runTranslationBatch(sender.tab.id, message.batchIndex, {
+        blocks: message.blocks,
+        targetLanguage: message.targetLanguage,
+      }).then(
         () => sendResponse({ kind: "complete" }),
         () => sendResponse({ kind: "failed" }),
       );
