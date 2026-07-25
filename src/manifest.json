@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "网页沉浸式翻译",
+  "version": "0.1.0",
+  "description": "使用自带 Key 的 LLM 配置翻译网页。",
+  "permissions": ["storage"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "options_page": "options.html"
+}
