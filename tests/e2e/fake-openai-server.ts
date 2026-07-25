@@ -9,19 +9,30 @@ export interface ReceivedOpenAiRequest {
 export async function startFakeOpenAiServer(options?: {
   cors?: boolean;
   disconnectPost?: boolean;
+  pageHtml?: string;
+  responseDelayMs?: number;
   responseBody?: unknown;
   statusCode?: number;
 }): Promise<{
   endpoint: string;
+  pageUrl: string;
   receivedRequest: Promise<ReceivedOpenAiRequest>;
+  receivedRequests: ReceivedOpenAiRequest[];
   close: () => Promise<void>;
 }> {
+  const receivedRequests: ReceivedOpenAiRequest[] = [];
   let resolveRequest: (request: ReceivedOpenAiRequest) => void = () => {};
   const receivedRequest = new Promise<ReceivedOpenAiRequest>((resolve) => {
     resolveRequest = resolve;
   });
 
   const server = createServer((request, response) => {
+    if (request.method === "GET" && request.url === "/test-page") {
+      response.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      response.end(options?.pageHtml ?? "<p>Test page</p>");
+      return;
+    }
+
     if (options?.cors !== false) {
       response.setHeader("Access-Control-Allow-Origin", "*");
       response.setHeader(
@@ -51,21 +62,25 @@ export async function startFakeOpenAiServer(options?: {
     request.on("data", (chunk: Buffer) => chunks.push(chunk));
     request.on("end", () => {
       const bodyText = Buffer.concat(chunks).toString("utf8");
-      resolveRequest({
+      const receivedRequest = {
         path: request.url ?? "",
         headers: request.headers,
         body: JSON.parse(bodyText) as unknown,
-      });
-      response.writeHead(options?.statusCode ?? 200, {
-        "Content-Type": "application/json",
-      });
-      response.end(
-        JSON.stringify(
-          options && "responseBody" in options
-            ? options.responseBody
-            : { choices: [{ message: { content: "OK" } }] },
-        ),
-      );
+      };
+      receivedRequests.push(receivedRequest);
+      resolveRequest(receivedRequest);
+      setTimeout(() => {
+        response.writeHead(options?.statusCode ?? 200, {
+          "Content-Type": "application/json",
+        });
+        response.end(
+          JSON.stringify(
+            options && "responseBody" in options
+              ? options.responseBody
+              : { choices: [{ message: { content: "OK" } }] },
+          ),
+        );
+      }, options?.responseDelayMs ?? 0);
     });
   });
 
@@ -81,7 +96,9 @@ export async function startFakeOpenAiServer(options?: {
 
   return {
     endpoint: `http://127.0.0.1:${address.port}/v1`,
+    pageUrl: `http://127.0.0.1:${address.port}/test-page`,
     receivedRequest,
+    receivedRequests,
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));

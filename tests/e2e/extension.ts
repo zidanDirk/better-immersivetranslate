@@ -1,19 +1,57 @@
-import { chromium, type BrowserContext, type Page } from "@playwright/test";
+import {
+  chromium,
+  type BrowserContext,
+  type Page,
+  type Worker,
+} from "@playwright/test";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
-export async function launchExtension(): Promise<{
+export async function launchExtension(options?: {
+  browserLanguage?: string;
+  hostPermissions?: string[];
+}): Promise<{
   context: BrowserContext;
+  extensionId: string;
   optionsPage: Page;
+  worker: Worker;
 }> {
-  const extensionPath = path.resolve("dist");
+  let extensionPath = path.resolve("dist");
+  let temporaryExtensionPath: string | undefined;
+  if (options?.hostPermissions) {
+    temporaryExtensionPath = await mkdtemp(
+      path.join(tmpdir(), "better-immersivetranslate-e2e-"),
+    );
+    await cp(extensionPath, temporaryExtensionPath, { recursive: true });
+    const manifestPath = path.join(temporaryExtensionPath, "manifest.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
+    manifest.host_permissions = options.hostPermissions;
+    await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    extensionPath = temporaryExtensionPath;
+  }
+
+  const extensionArguments = [
+    `--disable-extensions-except=${extensionPath}`,
+    `--load-extension=${extensionPath}`,
+  ];
+  if (options?.browserLanguage) {
+    extensionArguments.push(`--lang=${options.browserLanguage}`);
+  }
   const context = await chromium.launchPersistentContext("", {
     channel: "chromium",
     headless: true,
-    args: [
-      `--disable-extensions-except=${extensionPath}`,
-      `--load-extension=${extensionPath}`,
-    ],
+    args: extensionArguments,
+    locale: options?.browserLanguage,
   });
+  if (temporaryExtensionPath) {
+    context.on("close", () => {
+      void rm(temporaryExtensionPath, { force: true, recursive: true });
+    });
+  }
 
   let worker = context.serviceWorkers()[0];
   if (!worker) {
@@ -24,5 +62,5 @@ export async function launchExtension(): Promise<{
   const optionsPage = await context.newPage();
   await optionsPage.goto(`chrome-extension://${extensionId}/options.html`);
 
-  return { context, optionsPage };
+  return { context, extensionId, optionsPage, worker };
 }
