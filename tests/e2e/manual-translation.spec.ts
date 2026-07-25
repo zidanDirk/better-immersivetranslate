@@ -414,6 +414,7 @@ test("正式扩展默认只请求当前页面和右键菜单权限", async () =>
     await readFile("dist/manifest.json", "utf8"),
   ) as {
     host_permissions?: string[];
+    optional_host_permissions?: string[];
     permissions: string[];
   };
 
@@ -424,6 +425,10 @@ test("正式扩展默认只请求当前页面和右键菜单权限", async () =>
     "storage",
   ]);
   expect(manifest.host_permissions).toBeUndefined();
+  expect(manifest.optional_host_permissions).toEqual([
+    "http://*/*",
+    "https://*/*",
+  ]);
 });
 
 test("重复的翻译任务复用本地翻译缓存", async () => {
