@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "网页沉浸式翻译",
   "version": "0.1.0",
-  "description": "使用自带 Key 的 LLM 配置翻译网页。",
+  "description": "使用自带 API Key 和兼容 OpenAI 接口的模型翻译网页，在原文附近显示译文，支持双语对照、划词翻译与网站自动翻译。",
   "permissions": ["activeTab", "contextMenus", "scripting", "storage"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "icons": {
