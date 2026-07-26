@@ -65,6 +65,9 @@ const automaticTranslation =
 const websitePermissionRequest = document.querySelector<HTMLElement>(
   "#website-permission-request",
 );
+const openLlmConfigurationButton = document.querySelector<HTMLButtonElement>(
+  "#open-llm-configuration",
+);
 
 if (
   !openWebsiteOverrideButton ||
@@ -74,7 +77,8 @@ if (
   !websiteTranslationPrompt ||
   !websiteOverrideStatus ||
   !automaticTranslation ||
-  !websitePermissionRequest
+  !websitePermissionRequest ||
+  !openLlmConfigurationButton
 ) {
   throw new Error("扩展弹窗缺少网站覆盖设置");
 }
@@ -117,6 +121,10 @@ websiteOverrideForm.addEventListener("submit", async (event) => {
   if (!override) return;
   await saveWebsiteOverride(override);
   websiteOverrideStatus.textContent = "网站覆盖设置已保存";
+});
+
+openLlmConfigurationButton.addEventListener("click", async () => {
+  await chrome.runtime.openOptionsPage();
 });
 
 automaticTranslation.addEventListener("change", async () => {

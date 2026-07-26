@@ -70,3 +70,35 @@ test("展开网站覆盖设置后仍可操作", async () => {
     await fakeServer.close();
   }
 });
+
+test("用户可以从网站覆盖设置打开 LLM 配置页", async () => {
+  const fakeServer = await startFakeOpenAiServer();
+  const { context, extensionId, optionsPage } = await launchExtension({
+    hostPermissions: ["http://127.0.0.1/*"],
+  });
+
+  try {
+    await optionsPage.close();
+    const activePage = await context.newPage();
+    await activePage.goto(fakeServer.pageUrl);
+
+    const popup = await context.newPage();
+    await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+    await activePage.bringToFront();
+    await popup.getByRole("button", { name: "网站覆盖设置" }).click();
+
+    const openedPagePromise = context.waitForEvent("page");
+    await popup.getByRole("button", { name: "配置 LLM 信息" }).click();
+    const openedPage = await openedPagePromise;
+
+    await expect(openedPage).toHaveURL(
+      `chrome-extension://${extensionId}/options.html`,
+    );
+    await expect(
+      openedPage.getByRole("heading", { name: "你的翻译工作台" }),
+    ).toBeVisible();
+  } finally {
+    await context.close();
+    await fakeServer.close();
+  }
+});

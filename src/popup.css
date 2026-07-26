@@ -224,6 +224,33 @@ legend {
   height: 16px;
 }
 
+.llm-configuration-entry {
+  display: grid;
+  gap: 9px;
+  margin: 14px 0;
+  padding-top: 14px;
+  border-top: 1px solid #dbe4f6;
+}
+
+.llm-configuration-entry h3 {
+  margin: 0 0 2px;
+  color: #18346e;
+  font-size: 14px;
+}
+
+.llm-configuration-entry p {
+  margin: 0;
+  color: #5b6e9b;
+  font-size: 12px;
+}
+
+#open-llm-configuration {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+}
+
 #website-override-form button[type="submit"] {
   margin-top: 6px;
 }
