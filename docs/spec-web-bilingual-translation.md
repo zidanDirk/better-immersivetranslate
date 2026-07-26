@@ -21,7 +21,7 @@
 9. As a Chrome user, I want the source language detected automatically, so that I do not need to configure every page.
 10. As a Chrome user, I want the target language to default to my browser language, so that the first-use experience is sensible.
 11. As a Chrome user, I want global and website-specific language settings, so that different sites can have different translation preferences.
-12. As a Chrome user, I want to translate selected text from the context menu, so that I can translate a small passage without translating the whole page.
+12. As a Chrome user, I want to use 划词翻译 from an icon beside my selection or from the context menu, so that I can translate a small passage without translating the whole page.
 13. As a reader, I want to see the original text together with its translation, so that I can compare both versions.
 14. As a reader, I want to switch to translation-only or original-only display, so that I can choose the reading experience I prefer.
 15. As a reader, I want headings, paragraphs, lists and tables to remain structurally recognizable, so that translation does not destroy the page layout.
@@ -54,6 +54,7 @@
 - Cache translations locally using the LLM configuration, model, relevant instructions, source language, target language and source content as cache identity. Invalidate when model, prompt or relevant request configuration changes; provide manual clearing.
 - Support global and website-specific translation prompts and a local terminology table. Include instructions to return translations only while preserving semantic formatting.
 - Exclude inputs, editors, password fields, code blocks, command lines, logs, explicitly excluded elements, Chrome internal pages, local files and ordinary iframes in the first release.
+- Provide opt-in 划词翻译 through a selection-adjacent icon and anchored result surface. Website overrides take precedence over the global preference, and selected text leaves the page only after the user clicks the translation entry. See `docs/spec-selection-translation.md`.
 - Request active-page access by default and website host access only for website automatic translation.
 - Use one highest-level browser end-to-end seam: load the extension, configure a fake OpenAI-compatible provider, open a controlled test page, trigger translation, and assert externally visible bilingual output, cache reuse, failure retry and dynamic-content behavior. Add focused tests only for pure extraction/response-mapping boundaries needed to support that seam.
 

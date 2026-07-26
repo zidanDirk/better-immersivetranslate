@@ -18,6 +18,7 @@ import {
   loadGlobalTranslationPreferences,
   saveGlobalTranslationPreferences,
 } from "./translation-preferences.js";
+import { runUiTask } from "./ui-task.js";
 
 function requireElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
@@ -41,6 +42,7 @@ app.innerHTML = `
     </div>
     <button class="primary" id="add-configuration" type="button">新增 LLM 配置</button>
   </header>
+  <p id="options-status" aria-live="polite"></p>
   <aside class="security-notice" aria-labelledby="security-title">
     <div class="security-icon" aria-hidden="true">i</div>
     <div>
@@ -61,6 +63,13 @@ app.innerHTML = `
     <form id="global-target-language-form">
       <h2 id="global-preferences-title">全局翻译偏好</h2>
       <p>未设置时使用浏览器语言；网站覆盖设置可以为单个网站指定其他目标语言。</p>
+      <label class="selection-preference">
+        <input name="globalSelectionTranslation" type="checkbox" />
+        <span>
+          <strong>在所有网站启用划词翻译</strong>
+          <small>开启时会请求全部普通网站访问权限；敏感网站仍可单独关闭。</small>
+        </span>
+      </label>
       <label>
         全局目标语言
         <input name="globalTargetLanguage" placeholder="例如 zh-CN、en 或 ja" autocomplete="off" />
@@ -123,6 +132,7 @@ app.innerHTML = `
 `;
 
 const list = requireElement<HTMLElement>("#configuration-list");
+const optionsStatus = requireElement<HTMLElement>("#options-status");
 const form = requireElement<HTMLFormElement>("#configuration-form");
 const formTitle = requireElement<HTMLElement>("#form-title");
 const addButton = requireElement<HTMLButtonElement>("#add-configuration");
@@ -141,6 +151,9 @@ const globalTargetLanguageField = requireElement<HTMLInputElement>(
 );
 const globalTargetLanguageStatus = requireElement<HTMLElement>(
   "#global-target-language-status",
+);
+const globalSelectionTranslationField = requireElement<HTMLInputElement>(
+  '[name="globalSelectionTranslation"]',
 );
 const translationPromptForm = requireElement<HTMLFormElement>(
   "#translation-prompt-form",
@@ -171,6 +184,7 @@ const cancelTerminologyRuleButton = requireElement<HTMLButtonElement>(
 );
 let editingConfigurationId: string | null = null;
 let editingTerminologyRuleId: string | null = null;
+let savedGlobalSelectionTranslationEnabled = false;
 
 function parseObject<T extends Record<string, unknown>>(
   value: FormDataEntryValue | null,
@@ -210,15 +224,20 @@ async function renderConfigurations(): Promise<void> {
       testButton.type = "button";
       testButton.textContent = "测试连接";
       testButton.setAttribute("aria-label", `测试连接 ${configuration.name}`);
-      testButton.addEventListener("click", async () => {
-        testButton.disabled = true;
-        connectionStatus.textContent = "正在测试连接…";
-        try {
-          const result = await testLlmConnection(configuration);
-          connectionStatus.textContent = describeConnectionResult(result);
-        } finally {
+      testButton.addEventListener("click", () => {
+        runUiTask(async () => {
+          testButton.disabled = true;
+          connectionStatus.textContent = "正在测试连接…";
+          try {
+            const result = await testLlmConnection(configuration);
+            connectionStatus.textContent = describeConnectionResult(result);
+          } finally {
+            testButton.disabled = false;
+          }
+        }, () => {
           testButton.disabled = false;
-        }
+          connectionStatus.textContent = "连接测试失败，请重试";
+        });
       });
       const editButton = document.createElement("button");
       editButton.className = "secondary";
@@ -231,9 +250,13 @@ async function renderConfigurations(): Promise<void> {
       deleteButton.type = "button";
       deleteButton.textContent = "删除";
       deleteButton.setAttribute("aria-label", `删除 ${configuration.name}`);
-      deleteButton.addEventListener("click", async () => {
-        await removeLlmConfiguration(configuration.id);
-        await renderConfigurations();
+      deleteButton.addEventListener("click", () => {
+        runUiTask(async () => {
+          await removeLlmConfiguration(configuration.id);
+          await renderConfigurations();
+        }, () => {
+          optionsStatus.textContent = "LLM 配置删除失败，请重试";
+        });
       });
       actions.append(testButton, editButton, deleteButton);
 
@@ -269,14 +292,18 @@ async function renderTerminologyRules(): Promise<void> {
       deleteButton.type = "button";
       deleteButton.textContent = "删除";
       deleteButton.setAttribute("aria-label", `删除术语规则 ${rule.source}`);
-      deleteButton.addEventListener("click", async () => {
-        await saveTranslationInstructions({
-          ...instructions,
-          terminologyRules: instructions.terminologyRules.filter(
-            ({ id }) => id !== rule.id,
-          ),
+      deleteButton.addEventListener("click", () => {
+        runUiTask(async () => {
+          await saveTranslationInstructions({
+            ...instructions,
+            terminologyRules: instructions.terminologyRules.filter(
+              ({ id }) => id !== rule.id,
+            ),
+          });
+          await renderTerminologyRules();
+        }, () => {
+          optionsStatus.textContent = "术语规则删除失败，请重试";
         });
-        await renderTerminologyRules();
       });
       actions.append(editButton, deleteButton);
       row.append(terms, actions);
@@ -367,32 +394,105 @@ cancelButton.addEventListener("click", () => {
   addButton.hidden = false;
 });
 
-clearCacheButton.addEventListener("click", async () => {
-  clearCacheButton.disabled = true;
-  try {
-    await clearTranslationCache();
-    cacheStatus.textContent = "翻译缓存已清空";
-  } finally {
+clearCacheButton.addEventListener("click", () => {
+  runUiTask(async () => {
+    clearCacheButton.disabled = true;
+    try {
+      await clearTranslationCache();
+      cacheStatus.textContent = "翻译缓存已清空";
+    } finally {
+      clearCacheButton.disabled = false;
+    }
+  }, () => {
     clearCacheButton.disabled = false;
-  }
+    cacheStatus.textContent = "翻译缓存清空失败，请重试";
+  });
 });
 
-globalTargetLanguageForm.addEventListener("submit", async (event) => {
+globalTargetLanguageForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  await saveGlobalTranslationPreferences({
-    targetLanguage: globalTargetLanguageField.value.trim(),
+  runUiTask(async () => {
+    await saveGlobalTranslationPreferences({
+      targetLanguage: globalTargetLanguageField.value.trim(),
+      selectionTranslationEnabled: globalSelectionTranslationField.checked,
+    });
+    savedGlobalSelectionTranslationEnabled =
+      globalSelectionTranslationField.checked;
+    globalTargetLanguageStatus.textContent = "全局目标语言已保存";
+  }, () => {
+    globalTargetLanguageStatus.textContent = "全局目标语言保存失败，请重试";
   });
-  globalTargetLanguageStatus.textContent = "全局目标语言已保存";
 });
 
-translationPromptForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const instructions = await loadTranslationInstructions();
-  await saveTranslationInstructions({
-    ...instructions,
-    prompt: translationPromptField.value,
+globalSelectionTranslationField.addEventListener("change", () => {
+  const previousEnabled = savedGlobalSelectionTranslationEnabled;
+  runUiTask(async () => {
+    const allWebsiteOrigins = ["http://*/*", "https://*/*"];
+    if (globalSelectionTranslationField.checked) {
+      const granted = await chrome.permissions.request({
+        origins: allWebsiteOrigins,
+      });
+      if (!granted) {
+        globalSelectionTranslationField.checked = previousEnabled;
+        globalTargetLanguageStatus.textContent =
+          "权限被拒绝，所有网站的划词翻译未开启";
+        return;
+      }
+    }
+    const targetLanguage = globalTargetLanguageField.value.trim();
+    await saveGlobalTranslationPreferences({
+      targetLanguage,
+      selectionTranslationEnabled: globalSelectionTranslationField.checked,
+    });
+    try {
+      const response = await chrome.runtime.sendMessage({
+        kind: "sync-selection-translation",
+      });
+      if (
+        typeof response === "object" &&
+        response !== null &&
+        "kind" in response &&
+        response.kind === "failed"
+      ) {
+        throw new Error("同步划词翻译失败");
+      }
+    } catch (error) {
+      await saveGlobalTranslationPreferences({
+        targetLanguage,
+        selectionTranslationEnabled: previousEnabled,
+      });
+      throw error;
+    }
+    savedGlobalSelectionTranslationEnabled =
+      globalSelectionTranslationField.checked;
+    if (globalSelectionTranslationField.checked) {
+      globalTargetLanguageStatus.textContent = "所有网站的划词翻译已开启";
+      return;
+    }
+    const removed = await chrome.permissions.remove({
+      origins: allWebsiteOrigins,
+    });
+    globalTargetLanguageStatus.textContent = removed
+      ? "所有网站的划词翻译已关闭，网站权限已撤销"
+      : "所有网站的划词翻译已关闭";
+  }, () => {
+    globalSelectionTranslationField.checked = previousEnabled;
+    globalTargetLanguageStatus.textContent = "划词翻译设置失败，请重试";
   });
-  translationPromptStatus.textContent = "翻译提示词已保存";
+});
+
+translationPromptForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  runUiTask(async () => {
+    const instructions = await loadTranslationInstructions();
+    await saveTranslationInstructions({
+      ...instructions,
+      prompt: translationPromptField.value,
+    });
+    translationPromptStatus.textContent = "翻译提示词已保存";
+  }, () => {
+    translationPromptStatus.textContent = "翻译提示词保存失败，请重试";
+  });
 });
 
 addTerminologyRuleButton.addEventListener("click", () => {
@@ -403,51 +503,71 @@ cancelTerminologyRuleButton.addEventListener("click", () => {
   closeTerminologyForm();
 });
 
-terminologyForm.addEventListener("submit", async (event) => {
+terminologyForm.addEventListener("submit", (event) => {
   event.preventDefault();
-  const instructions = await loadTranslationInstructions();
-  const rule = {
-    id: editingTerminologyRuleId ?? crypto.randomUUID(),
-    source: terminologySourceField.value.trim(),
-    target: terminologyTargetField.value.trim(),
-  };
-  await saveTranslationInstructions({
-    ...instructions,
-    terminologyRules: editingTerminologyRuleId
-      ? instructions.terminologyRules.map((existing) =>
-          existing.id === editingTerminologyRuleId ? rule : existing,
-        )
-      : [...instructions.terminologyRules, rule],
+  runUiTask(async () => {
+    const instructions = await loadTranslationInstructions();
+    const rule = {
+      id: editingTerminologyRuleId ?? crypto.randomUUID(),
+      source: terminologySourceField.value.trim(),
+      target: terminologyTargetField.value.trim(),
+    };
+    await saveTranslationInstructions({
+      ...instructions,
+      terminologyRules: editingTerminologyRuleId
+        ? instructions.terminologyRules.map((existing) =>
+            existing.id === editingTerminologyRuleId ? rule : existing,
+          )
+        : [...instructions.terminologyRules, rule],
+    });
+    closeTerminologyForm();
+    await renderTerminologyRules();
+  }, () => {
+    optionsStatus.textContent = "术语规则保存失败，请重试";
   });
-  closeTerminologyForm();
-  await renderTerminologyRules();
 });
 
-form.addEventListener("submit", async (event) => {
+form.addEventListener("submit", (event) => {
   event.preventDefault();
-  const data = new FormData(form);
-  const configuration: LlmConfiguration = {
-    id: editingConfigurationId ?? crypto.randomUUID(),
-    name: String(data.get("name")),
-    endpoint: String(data.get("endpoint")),
-    apiKey: String(data.get("apiKey")),
-    model: String(data.get("model")),
-    requestParameters: parseObject(data.get("requestParameters")),
-    customHeaders: parseObject<Record<string, string>>(data.get("customHeaders")),
-  };
+  runUiTask(async () => {
+    const data = new FormData(form);
+    const configuration: LlmConfiguration = {
+      id: editingConfigurationId ?? crypto.randomUUID(),
+      name: String(data.get("name")),
+      endpoint: String(data.get("endpoint")),
+      apiKey: String(data.get("apiKey")),
+      model: String(data.get("model")),
+      requestParameters: parseObject(data.get("requestParameters")),
+      customHeaders: parseObject<Record<string, string>>(
+        data.get("customHeaders"),
+      ),
+    };
 
-  await saveLlmConfiguration(configuration);
-  editingConfigurationId = null;
-  form.reset();
-  form.hidden = true;
-  addButton.hidden = false;
-  await renderConfigurations();
+    await saveLlmConfiguration(configuration);
+    editingConfigurationId = null;
+    form.reset();
+    form.hidden = true;
+    addButton.hidden = false;
+    await renderConfigurations();
+  }, () => {
+    optionsStatus.textContent =
+      "LLM 配置保存失败，请检查 JSON 格式后重试";
+  });
 });
 
-const translationInstructions = await loadTranslationInstructions();
-translationPromptField.value = translationInstructions.prompt;
-const globalTranslationPreferences =
-  await loadGlobalTranslationPreferences();
-globalTargetLanguageField.value = globalTranslationPreferences.targetLanguage;
-await renderTerminologyRules();
-await renderConfigurations();
+runUiTask(async () => {
+  const translationInstructions = await loadTranslationInstructions();
+  translationPromptField.value = translationInstructions.prompt;
+  const globalTranslationPreferences =
+    await loadGlobalTranslationPreferences();
+  globalTargetLanguageField.value = globalTranslationPreferences.targetLanguage;
+  globalSelectionTranslationField.checked =
+    globalTranslationPreferences.selectionTranslationEnabled;
+  savedGlobalSelectionTranslationEnabled =
+    globalTranslationPreferences.selectionTranslationEnabled;
+  await renderTerminologyRules();
+  await renderConfigurations();
+}, () => {
+  optionsStatus.textContent =
+    "设置加载失败，请重新打开页面后重试";
+});

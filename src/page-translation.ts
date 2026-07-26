@@ -140,7 +140,41 @@ export function updateTranslationBatchProgress(batchIndex: number, progress: Tra
       background: "#2563eb",
       cursor: "pointer",
     });
-    retry.addEventListener("click", () => { retry.disabled = true; void chrome.runtime.sendMessage({ kind: "retry-translation-batch", batchIndex, blocks: progress.retryBatch.blocks, targetLanguage: progress.retryBatch.targetLanguage }); });
+    retry.addEventListener("click", () => {
+      retry.disabled = true;
+      void chrome.runtime
+        .sendMessage({
+          kind: "retry-translation-batch",
+          batchIndex,
+          blocks: progress.retryBatch.blocks,
+          targetLanguage: progress.retryBatch.targetLanguage,
+        })
+        .then(
+          (response: unknown) => {
+            if (
+              typeof response === "object" &&
+              response !== null &&
+              "kind" in response &&
+              response.kind === "failed"
+            ) {
+              retry.disabled = false;
+              retry.textContent = "重试失败，请重试";
+            }
+          },
+          (error: unknown) => {
+            if (
+              error instanceof Error &&
+              error.message.includes("Extension context invalidated")
+            ) {
+              container.remove();
+              return;
+            }
+            retry.disabled = false;
+            retry.textContent = "重试失败，请重试";
+          },
+        )
+        .catch(() => {});
+    });
     batch.append(" ", retry);
     failures.append(batch);
   }
@@ -372,7 +406,24 @@ export function collectTranslatableSemanticTextBlocks(
             kind: "translate-incremental-blocks",
             blocks: changedBlocks,
           })
-          .catch(() => {});
+          .catch((error: unknown) => {
+            try {
+              if (
+                error instanceof Error &&
+                error.message.includes("Extension context invalidated")
+              ) {
+                observer.disconnect();
+                window.clearTimeout(pendingCollection);
+                if (
+                  observerState.betterImmersiveIncrementalObserver === observer
+                ) {
+                  delete observerState.betterImmersiveIncrementalObserver;
+                }
+              }
+            } catch {
+              // The old page context is already unusable.
+            }
+          });
       }
     }, 75);
   });
@@ -398,49 +449,6 @@ export function selectionIntersectsDefaultExcludedContent(
   return Array.from(
     document.querySelectorAll(excludedContentSelector),
   ).some((element) => range.intersectsNode(element));
-}
-
-export function showSelectedTextTranslation(
-  sourceText: string,
-  translatedText: string,
-  targetLanguage: string,
-): void {
-  document
-    .querySelector("[data-better-immersive-selection-result]")
-    ?.remove();
-
-  const panel = document.createElement("aside");
-  panel.setAttribute("role", "region");
-  panel.setAttribute("aria-label", "选中文本翻译结果");
-  panel.setAttribute("aria-live", "polite");
-  panel.dataset.betterImmersiveSelectionResult = "";
-  Object.assign(panel.style, {
-    background: "#ffffff",
-    border: "1px solid #d0d7de",
-    borderRadius: "8px",
-    bottom: "16px",
-    boxShadow: "0 8px 24px rgba(140, 149, 159, 0.2)",
-    color: "#1f2328",
-    font: "14px/1.5 system-ui, sans-serif",
-    maxWidth: "min(420px, calc(100vw - 32px))",
-    padding: "16px",
-    position: "fixed",
-    right: "16px",
-    whiteSpace: "pre-wrap",
-    zIndex: "2147483647",
-  });
-
-  const source = document.createElement("p");
-  source.textContent = sourceText;
-  source.style.margin = "0 0 8px";
-
-  const translation = document.createElement("p");
-  translation.lang = targetLanguage;
-  translation.textContent = translatedText;
-  translation.style.margin = "0";
-
-  panel.append(source, translation);
-  document.body.append(panel);
 }
 
 export function insertBilingualTranslations(
