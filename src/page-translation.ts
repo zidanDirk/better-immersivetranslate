@@ -21,32 +21,115 @@ export function initializeTranslationProgress(batchCount: number): void {
   progress.setAttribute("role", "region");
   progress.setAttribute("aria-label", "翻译进度");
   progress.setAttribute("aria-live", "polite");
-  const list = document.createElement("ol");
-  for (let index = 0; index < batchCount; index += 1) {
-    const item = document.createElement("li");
-    item.dataset.betterImmersiveBatch = String(index);
-    item.dataset.betterImmersiveBatchStatus = "waiting";
-    item.textContent = `批次 ${index + 1}：等待中`;
-    list.append(item);
-  }
-  progress.append(Object.assign(document.createElement("h2"), { textContent: "翻译进度" }), list);
-  document.body.prepend(progress);
+  progress.dataset.betterImmersiveBatchStatuses = JSON.stringify(
+    Array.from({ length: batchCount }, () => "waiting"),
+  );
+  Object.assign(progress.style, {
+    position: "fixed",
+    right: "20px",
+    bottom: "20px",
+    zIndex: "2147483647",
+    minWidth: "220px",
+    maxWidth: "360px",
+    padding: "12px 14px",
+    border: "1px solid #bfdbfe",
+    borderRadius: "10px",
+    color: "#1e3a5f",
+    background: "#eff6ff",
+    boxShadow: "0 8px 24px rgb(15 23 42 / 18%)",
+    font: "14px/1.45 -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+  });
+  const summary = document.createElement("p");
+  summary.dataset.betterImmersiveProgressSummary = "";
+  summary.style.margin = "0";
+  progress.append(summary);
+  const failures = document.createElement("div");
+  failures.dataset.betterImmersiveProgressFailures = "";
+  failures.style.marginTop = "8px";
+  progress.append(failures);
+  document.body.append(progress);
+  summary.textContent = `正在翻译 0/${batchCount} 批次`;
 }
 
 export function updateTranslationBatchProgress(batchIndex: number, progress: TranslationBatchProgress): void {
-  const batch = document.querySelector<HTMLElement>(`[data-better-immersive-batch="${batchIndex}"]`);
-  if (!batch) return;
-  const labels: Record<TranslationBatchFailureKind, string> = { authentication: "认证失败：请检查 API Key", configuration: "配置失败：请先添加 LLM 配置", cors: "CORS 失败：服务未允许浏览器跨域请求", network: "网络失败：无法连接到服务地址", "rate-limit": "请求受限：请稍后手动重试", "response-format": "响应格式错误：服务未返回有效译文", timeout: "请求超时：请手动重试" };
-  const label = progress.status === "failed" ? labels[progress.failureKind] : ({ waiting: "等待中", processing: "处理中", complete: "已完成" } as const)[progress.status];
-  batch.dataset.betterImmersiveBatchStatus = progress.status;
-  batch.textContent = `批次 ${batchIndex + 1}：${label}`;
+  const readStoredBatchStatuses = (container: HTMLElement): Array<
+    "waiting" | "processing" | "complete" | "failed"
+  > => {
+    try {
+      const statuses = JSON.parse(
+        container.dataset.betterImmersiveBatchStatuses ?? "[]",
+      ) as unknown;
+      return Array.isArray(statuses) && statuses.every(
+        (status) =>
+          status === "waiting" ||
+          status === "processing" ||
+          status === "complete" ||
+          status === "failed",
+      )
+        ? statuses
+        : [];
+    } catch {
+      return [];
+    }
+  };
+  const container = document.querySelector<HTMLElement>(
+    "[data-better-immersive-progress]",
+  );
+  if (!container) return;
+  const statuses = readStoredBatchStatuses(container);
+  if (batchIndex < 0 || batchIndex >= statuses.length) return;
+  statuses[batchIndex] = progress.status;
+  container.dataset.betterImmersiveBatchStatuses = JSON.stringify(statuses);
+  const failures = container.querySelector<HTMLElement>(
+    "[data-better-immersive-progress-failures]",
+  );
+  failures?.querySelector(
+    `[data-better-immersive-failed-batch="${batchIndex}"]`,
+  )?.remove();
   if (progress.status === "failed") {
+    if (!failures) return;
+    const batch = document.createElement("div");
+    batch.dataset.betterImmersiveFailedBatch = String(batchIndex);
+    batch.style.marginTop = "6px";
+    const labels: Record<TranslationBatchFailureKind, string> = {
+      authentication: "认证失败：请检查 API Key",
+      configuration: "配置失败：请先添加 LLM 配置",
+      cors: "CORS 失败：服务未允许浏览器跨域请求",
+      network: "网络失败：无法连接到服务地址",
+      "rate-limit": "请求受限：请稍后手动重试",
+      "response-format": "响应格式错误：服务未返回有效译文",
+      timeout: "请求超时：请手动重试",
+    };
+    batch.textContent = `批次 ${batchIndex + 1}：${labels[progress.failureKind]}`;
     const retry = document.createElement("button");
     retry.type = "button";
     retry.textContent = `重试批次 ${batchIndex + 1}`;
+    Object.assign(retry.style, {
+      marginLeft: "8px",
+      border: "1px solid #2563eb",
+      borderRadius: "6px",
+      padding: "3px 7px",
+      color: "#fff",
+      background: "#2563eb",
+      cursor: "pointer",
+    });
     retry.addEventListener("click", () => { retry.disabled = true; void chrome.runtime.sendMessage({ kind: "retry-translation-batch", batchIndex, blocks: progress.retryBatch.blocks, targetLanguage: progress.retryBatch.targetLanguage }); });
     batch.append(" ", retry);
+    failures.append(batch);
   }
+  const completed = statuses.filter((status) => status === "complete").length;
+  const failed = statuses.filter((status) => status === "failed").length;
+  const summary = container.querySelector<HTMLElement>(
+    "[data-better-immersive-progress-summary]",
+  );
+  if (!summary) return;
+  if (completed === statuses.length && failed === 0) {
+    container.remove();
+    return;
+  }
+  summary.textContent = failed > 0
+    ? `翻译进度：已完成 ${completed}/${statuses.length} 批次，失败 ${failed} 批次`
+    : `正在翻译：已完成 ${completed}/${statuses.length} 批次`;
 }
 
 export type ReadingMode = "bilingual" | "translation-only" | "original-only";

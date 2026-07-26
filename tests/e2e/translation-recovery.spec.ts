@@ -51,15 +51,24 @@ test("翻译界面按批次显示等待、处理和完成状态", async () => {
     await saveMinimalLlmConfiguration(optionsPage, fakeServer.endpoint);
     const page = await context.newPage();
     await page.goto(fakeServer.pageUrl);
+    const firstSource = page.getByText("Source 1", { exact: true });
+    const sourcePositionBeforeTranslation = await firstSource.boundingBox();
 
     await triggerCurrentPageTranslation(context, extensionId, page);
 
     const progress = page.getByRole("region", { name: "翻译进度" });
-    await expect(progress.getByText("批次 1：处理中")).toBeVisible();
-    await expect(progress.getByText("批次 2：等待中")).toBeVisible();
-    await expect(progress.getByText("批次 1：已完成")).toBeVisible();
-    await expect(progress.getByText("批次 2：处理中")).toBeVisible();
-    await expect(progress.getByText("批次 2：已完成")).toBeVisible();
+    await expect(progress).toBeVisible();
+    await expect(progress).toContainText("正在翻译：已完成 0/2 批次");
+    await expect(progress).toHaveCSS("position", "fixed");
+    const sourcePositionDuringTranslation = await firstSource.boundingBox();
+    expect(sourcePositionBeforeTranslation).not.toBeNull();
+    expect(sourcePositionDuringTranslation).not.toBeNull();
+    expect(sourcePositionDuringTranslation).toMatchObject({
+      x: sourcePositionBeforeTranslation!.x,
+      y: sourcePositionBeforeTranslation!.y,
+    });
+    await expect(progress).toContainText("正在翻译：已完成 1/2 批次");
+    await expect(progress).toHaveCount(0);
     await expect(page.getByText("Translation 1", { exact: true })).toBeVisible();
     await expect(
       page.getByText("Translation 11", { exact: true }),
@@ -350,7 +359,9 @@ test("用户只手动重试失败批次且扩展默认不自动重试", async ()
     await triggerCurrentPageTranslation(context, extensionId, page);
 
     const progress = page.getByRole("region", { name: "翻译进度" });
-    await expect(progress.getByText("批次 1：已完成")).toBeVisible();
+    await expect(progress).toContainText(
+      "翻译进度：已完成 1/2 批次，失败 1 批次",
+    );
     await expect(
       progress.getByText("批次 2：请求受限：请稍后手动重试"),
     ).toBeVisible();
@@ -371,8 +382,8 @@ test("用户只手动重试失败批次且扩展默认不自动重试", async ()
 
     await retryButton.click();
 
-    await expect(progress.getByText("批次 2：处理中")).toBeVisible();
-    await expect(progress.getByText("批次 2：已完成")).toBeVisible();
+    await expect(progress).toContainText("正在翻译：已完成 1/2 批次");
+    await expect(progress).toHaveCount(0);
     await expect(
       page.getByText("Recovered translation 11", { exact: true }),
     ).toBeVisible();

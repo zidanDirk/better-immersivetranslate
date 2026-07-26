@@ -207,10 +207,8 @@ test("增量批次复用翻译缓存并显示完成进度", async () => {
 
     await expect(page.getByText("缓存译文。")).toHaveCount(2);
     await expect(
-      page
-        .getByRole("region", { name: "翻译进度" })
-        .getByText("批次 1：已完成"),
-    ).toBeVisible();
+      page.getByRole("region", { name: "翻译进度" }),
+    ).toHaveCount(0);
     await page.waitForTimeout(250);
     expect(fakeServer.receivedRequests).toHaveLength(1);
   } finally {
@@ -282,7 +280,7 @@ test("增量批次失败时显示状态并可沿用批次恢复", async () => {
     await progress.getByRole("button", { name: "重试批次 1" }).click();
     await expect(page.getByText("恢复后的动态译文。")).toBeVisible();
     await expect(page.getByText("后续动态译文。")).toBeVisible();
-    await expect(progress.getByText("批次 1：已完成")).toBeVisible();
+    await expect(progress).toHaveCount(0);
     await expect.poll(() => fakeServer.receivedRequests).toHaveLength(4);
   } finally {
     await context.close();
