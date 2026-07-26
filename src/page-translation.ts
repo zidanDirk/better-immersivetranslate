@@ -75,7 +75,7 @@ export function initializeTranslationProgress(batchCount: number): void {
   failures.style.marginTop = "8px";
   progress.append(failures);
   document.body.append(progress);
-  summary.textContent = `正在翻译 0/${batchCount} 批次`;
+  summary.textContent = "正在翻译：已经完成 0%";
 }
 
 export function updateTranslationBatchProgress(batchIndex: number, progress: TranslationBatchProgress): void {
@@ -146,6 +146,7 @@ export function updateTranslationBatchProgress(batchIndex: number, progress: Tra
   }
   const completed = statuses.filter((status) => status === "complete").length;
   const failed = statuses.filter((status) => status === "failed").length;
+  const completedPercentage = Math.round((completed / statuses.length) * 100);
   const meter = container.querySelector<HTMLElement>(
     "[data-better-immersive-progress-meter]",
   );
@@ -161,8 +162,8 @@ export function updateTranslationBatchProgress(batchIndex: number, progress: Tra
     return;
   }
   summary.textContent = failed > 0
-    ? `翻译进度：已完成 ${completed}/${statuses.length} 批次，失败 ${failed} 批次`
-    : `正在翻译：已完成 ${completed}/${statuses.length} 批次`;
+    ? `翻译进度：已经完成 ${completedPercentage}%，失败 ${failed} 批次`
+    : `正在翻译：已经完成 ${completedPercentage}%`;
 }
 
 export type ReadingMode = "bilingual" | "translation-only" | "original-only";

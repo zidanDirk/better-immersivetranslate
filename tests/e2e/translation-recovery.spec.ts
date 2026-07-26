@@ -111,7 +111,7 @@ test("一个并发批次失败时，其他批次仍完成并保留失败重试�
     await triggerCurrentPageTranslation(context, extensionId, page);
 
     const progress = page.getByRole("region", { name: "翻译进度" });
-    await expect(progress).toContainText("翻译进度：已完成 2/3 批次，失败 1 批次");
+    await expect(progress).toContainText("翻译进度：已经完成 67%，失败 1 批次");
     await expect(
       progress.getByRole("button", { name: "重试批次 2" }),
     ).toBeVisible();
@@ -171,7 +171,7 @@ test("翻译界面按批次显示等待、处理和完成状态", async () => {
 
     const progress = page.getByRole("region", { name: "翻译进度" });
     await expect(progress).toBeVisible();
-    await expect(progress).toContainText("正在翻译：已完成 0/2 批次");
+    await expect(progress).toContainText("正在翻译：已经完成 0%");
     await expect(progress).toHaveCSS("position", "fixed");
     await expect(
       progress.locator("[data-better-immersive-progress-meter]"),
@@ -183,7 +183,7 @@ test("翻译界面按批次显示等待、处理和完成状态", async () => {
       x: sourcePositionBeforeTranslation!.x,
       y: sourcePositionBeforeTranslation!.y,
     });
-    await expect(progress).toContainText("正在翻译：已完成 1/2 批次");
+    await expect(progress).toContainText("正在翻译：已经完成 50%");
     const progressMeterWidth = await progress
       .locator("[data-better-immersive-progress-meter]")
       .evaluate((meter) => meter.getBoundingClientRect().width);
@@ -524,7 +524,7 @@ test("限流失败自动重试三次后保留失败提示和单次手动重试",
 
     const progress = page.getByRole("region", { name: "翻译进度" });
     await expect(progress).toContainText(
-      "翻译进度：已完成 1/2 批次，失败 1 批次",
+      "翻译进度：已经完成 50%，失败 1 批次",
     );
     await expect(
       progress.getByText("批次 2：请求受限：请稍后手动重试"),
