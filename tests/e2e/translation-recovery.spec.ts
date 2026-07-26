@@ -579,3 +579,51 @@ test("限流失败自动重试三次后保留失败提示和单次手动重试",
     await fakeServer.close();
   }
 });
+
+test("旧页面中的批次重试失去扩展上下文后不会产生未捕获错误", async () => {
+  const fakeServer = await startFakeOpenAiServer({
+    pageHtml: "<main><p>Retry from a stale extension context.</p></main>",
+    statusCode: 401,
+  });
+  const { context, extensionId, optionsPage, worker } = await launchExtension({
+    hostPermissions: ["http://127.0.0.1/*"],
+  });
+
+  try {
+    await saveMinimalLlmConfiguration(optionsPage, fakeServer.endpoint);
+    const page = await context.newPage();
+    await page.goto(fakeServer.pageUrl);
+    const pageErrors: string[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+    await triggerCurrentPageTranslation(context, extensionId, page);
+    const progress = page.getByRole("region", { name: "翻译进度" });
+    const retry = progress.getByRole("button", { name: "重试批次 1" });
+    await expect(retry).toBeVisible();
+
+    await worker.evaluate(async (pageUrl) => {
+      const [pageTab] = await chrome.tabs.query({ url: pageUrl });
+      if (pageTab?.id === undefined) {
+        throw new Error("没有找到翻译测试页面");
+      }
+      await chrome.scripting.executeScript({
+        target: { tabId: pageTab.id },
+        func: () => {
+          Object.defineProperty(chrome.runtime, "sendMessage", {
+            value: async () => {
+              throw new Error("Extension context invalidated.");
+            },
+          });
+        },
+      });
+    }, fakeServer.pageUrl);
+
+    await retry.click();
+    await page.waitForTimeout(100);
+
+    expect(pageErrors).toEqual([]);
+    await expect(progress).toHaveCount(0);
+  } finally {
+    await context.close();
+    await fakeServer.close();
+  }
+});

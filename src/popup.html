@@ -31,6 +31,7 @@
         <button type="button" data-reading-mode="original-only">仅原文</button>
       </fieldset>
       <button id="open-website-override" type="button"><span>网站覆盖设置</span><span aria-hidden="true">›</span></button>
+      <p id="popup-status" aria-live="polite"></p>
     </main>
     <form id="website-override-form" hidden>
       <h2>网站覆盖设置</h2>
@@ -46,6 +47,14 @@
       <label>
         <input name="automaticTranslation" type="checkbox" />
         网站自动翻译
+      </label>
+      <label>
+        此网站划词翻译
+        <select name="selectionTranslation">
+          <option value="inherit">使用全局设置</option>
+          <option value="enabled">开启</option>
+          <option value="disabled">关闭</option>
+        </select>
       </label>
       <p id="website-permission-request"></p>
       <div class="llm-configuration-entry">

@@ -25,5 +25,11 @@
     "service_worker": "background.js",
     "type": "module"
   },
+  "web_accessible_resources": [
+    {
+      "resources": ["icons/translation-32.png"],
+      "matches": ["http://*/*", "https://*/*"]
+    }
+  ],
   "options_page": "options.html"
 }

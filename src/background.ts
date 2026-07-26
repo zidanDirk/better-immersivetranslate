@@ -7,17 +7,22 @@ import {
   isReadingMode,
   READING_MODE_PRESERVED_CONTENT_SELECTOR,
   selectionIntersectsDefaultExcludedContent,
-  showSelectedTextTranslation,
   updateTranslationBatchProgress,
   type ReadingMode,
   type RetryTranslationBatch,
   type SemanticTextBlock,
+  type TranslationBatchFailureKind,
 } from "./page-translation.js";
-import { translateSemanticTextBatch } from "./translation-provider.js";
+import {
+  translateSemanticTextBatch,
+  type TranslationBatchResult,
+} from "./translation-provider.js";
 import { isRecord } from "./unknown-value.js";
 import {
   loadWebsiteOverride,
+  resolveSelectionTranslationEnabled,
   resolveTranslationPreferences,
+  selectionTranslationRegistration,
   websiteAccess,
 } from "./website-overrides.js";
 import type { TranslationInstructions } from "./translation-instructions.js";
@@ -25,6 +30,73 @@ import type { TranslationInstructions } from "./translation-instructions.js";
 const selectionMenuId = "translate-selected-text";
 const translationBatchSize = 10;
 const maximumConcurrentTranslationBatches = 2;
+const selectionTranslationContentScriptId = "selection-translation";
+let activeProviderRequestCount = 0;
+const priorityProviderWaiters: Array<() => void> = [];
+const normalProviderWaiters: Array<() => void> = [];
+
+async function prioritizedTranslationRequest(
+  blocks: SemanticTextBlock[],
+  targetLanguage: string,
+  instructions: TranslationInstructions,
+  priority: "normal" | "selection",
+): Promise<TranslationBatchResult> {
+  if (activeProviderRequestCount >= maximumConcurrentTranslationBatches) {
+    await new Promise<void>((resolve) => {
+      (priority === "selection"
+        ? priorityProviderWaiters
+        : normalProviderWaiters
+      ).push(resolve);
+    });
+  } else {
+    activeProviderRequestCount += 1;
+  }
+  let released = false;
+  const release = (): void => {
+    if (released) return;
+    released = true;
+    const next =
+      priorityProviderWaiters.shift() ?? normalProviderWaiters.shift();
+    if (next) {
+      next();
+      return;
+    }
+    activeProviderRequestCount -= 1;
+  };
+  try {
+    return await translateSemanticTextBatch(
+      blocks,
+      targetLanguage,
+      instructions,
+    );
+  } finally {
+    release();
+  }
+}
+
+async function syncSelectionTranslationContentScript(): Promise<void> {
+  const { matches, excludeMatches } =
+    await selectionTranslationRegistration();
+  const registered = await chrome.scripting.getRegisteredContentScripts({
+    ids: [selectionTranslationContentScriptId],
+  });
+  if (registered.length > 0) {
+    await chrome.scripting.unregisterContentScripts({
+      ids: [selectionTranslationContentScriptId],
+    });
+  }
+  if (matches.length === 0) return;
+  await chrome.scripting.registerContentScripts([
+    {
+      id: selectionTranslationContentScriptId,
+      js: ["selection-translation.js"],
+      matches,
+      excludeMatches,
+      persistAcrossSessions: true,
+      runAt: "document_idle",
+    },
+  ]);
+}
 
 interface TabTranslationState {
   failedBatchCount: number;
@@ -53,6 +125,17 @@ function isSemanticTextBlock(value: unknown): value is SemanticTextBlock {
   return isRecord(value) && typeof value.id === "string" && typeof value.text === "string" && (value.version === undefined || (typeof value.version === "number" && Number.isInteger(value.version) && value.version >= 0));
 }
 
+function safelySendResponse(
+  sendResponse: (response?: unknown) => void,
+  response: unknown,
+): void {
+  try {
+    sendResponse(response);
+  } catch {
+    // The sender may have navigated or closed before the task settled.
+  }
+}
+
 async function runTranslationBatch(
   tabId: number,
   batchIndex: number,
@@ -61,10 +144,11 @@ async function runTranslationBatch(
   maximumAutomaticRetryCount = 3,
 ): Promise<boolean> {
   await chrome.scripting.executeScript({ target: { tabId }, func: updateTranslationBatchProgress, args: [batchIndex, { status: "processing" }] });
-  let result = await translateSemanticTextBatch(
+  let result = await prioritizedTranslationRequest(
     retryBatch.blocks,
     retryBatch.targetLanguage,
     instructions,
+    "normal",
   );
   for (
     let retryIndex = 0;
@@ -79,10 +163,11 @@ async function runTranslationBatch(
     await new Promise((resolve) =>
       setTimeout(resolve, Math.min(100 * 2 ** retryIndex, 400)),
     );
-    result = await translateSemanticTextBatch(
+    result = await prioritizedTranslationRequest(
       retryBatch.blocks,
       retryBatch.targetLanguage,
       instructions,
+      "normal",
     );
   }
   if (result.kind === "failed") {
@@ -178,11 +263,11 @@ function scheduleIncrementalTranslation(tabId: number): Promise<void> {
     if (state.scheduledIncrementalTranslation === current) {
       state.scheduledIncrementalTranslation = undefined;
     }
-    if (
-      state.failedBatchCount === 0 &&
-      state.pendingIncrementalBlocks.size > 0
-    ) {
-      void scheduleIncrementalTranslation(tabId);
+  if (
+    state.failedBatchCount === 0 &&
+    state.pendingIncrementalBlocks.size > 0
+  ) {
+      void scheduleIncrementalTranslation(tabId).catch(() => {});
     }
   };
   void current.then(scheduleLatestPendingBlocks, scheduleLatestPendingBlocks);
@@ -210,29 +295,133 @@ async function setReadingMode(tabId: number, mode: ReadingMode): Promise<void> {
 }
 
 async function translateSelectedText(tabId: number, selectionText: string): Promise<void> {
+  const result = await selectionTranslationResult(tabId, selectionText);
+  if (result.kind !== "complete") return;
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["selection-translation.js"],
+  });
+  await chrome.tabs.sendMessage(tabId, {
+    ...result,
+    kind: "show-selection-translation-result",
+  });
+}
+
+async function selectionTranslationResult(
+  tabId: number,
+  selectionText: string,
+): Promise<
+  | {
+      kind: "complete";
+      sourceText: string;
+      translatedText: string;
+      targetLanguage: string;
+    }
+  | {
+      kind: "failed";
+      failureKind: TranslationBatchFailureKind | "extension";
+    }
+> {
   const tab = await chrome.tabs.get(tabId);
   const preferences = await resolveTranslationPreferences(tab.url);
-  const result = await translateSemanticTextBatch(
+  const result = await prioritizedTranslationRequest(
     [{ id: "selected-text", text: selectionText }],
     preferences.targetLanguage,
     preferences.instructions,
+    "selection",
   );
-  if (result.kind !== "complete" || !result.translations[0]) return;
-  await chrome.scripting.executeScript({ target: { tabId }, func: showSelectedTextTranslation, args: [selectionText, result.translations[0].text, preferences.targetLanguage] });
+  if (result.kind === "failed") return result;
+  const translation = result.translations[0];
+  return translation
+    ? {
+        kind: "complete",
+        sourceText: selectionText,
+        translatedText: translation.text,
+        targetLanguage: preferences.targetLanguage,
+      }
+    : { kind: "failed", failureKind: "response-format" };
 }
 
-chrome.runtime.onInstalled.addListener(() => chrome.contextMenus.create({ id: selectionMenuId, title: "翻译选中文本", contexts: ["selection"] }));
+async function setSelectionTranslationForTab(
+  tabId: number,
+  enabled: boolean,
+): Promise<void> {
+  if (enabled) {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["selection-translation.js"],
+    });
+    return;
+  }
+  await chrome.tabs
+    .sendMessage(tabId, { kind: "disable-selection-translation" })
+    .catch(() => {});
+}
+
+async function refreshSelectionTranslationForTab(tabId: number): Promise<void> {
+  const tab = await chrome.tabs.get(tabId);
+  await setSelectionTranslationForTab(
+    tabId,
+    await resolveSelectionTranslationEnabled(tab.url),
+  );
+}
+
+async function syncAndRefreshSelectionTranslationTabs(): Promise<void> {
+  await syncSelectionTranslationContentScript();
+  const tabs = await chrome.tabs.query({});
+  await Promise.all(
+    tabs
+      .filter((tab): tab is chrome.tabs.Tab & { id: number } =>
+        typeof tab.id === "number",
+      )
+      .map(async (tab) => {
+        const enabled = await resolveSelectionTranslationEnabled(tab.url);
+        await setSelectionTranslationForTab(tab.id, enabled).catch(() => {});
+      }),
+  );
+}
+
+void syncAndRefreshSelectionTranslationTabs().catch(() => {});
+
+function registerSelectionContextMenu(): void {
+  chrome.contextMenus.remove(selectionMenuId, () => {
+    void chrome.runtime.lastError;
+    chrome.contextMenus.create(
+      {
+        id: selectionMenuId,
+        title: "翻译选中文本",
+        contexts: ["selection"],
+      },
+      () => {
+        void chrome.runtime.lastError;
+      },
+    );
+  });
+}
+
+chrome.runtime.onInstalled.addListener(registerSelectionContextMenu);
 async function handleSelectionMenuClick(info: chrome.contextMenus.OnClickData, tab?: chrome.tabs.Tab): Promise<void> {
   if (info.menuItemId !== selectionMenuId || typeof info.selectionText !== "string" || info.editable || (info.frameId !== undefined && info.frameId !== 0) || tab?.id === undefined) return;
   const checked = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: selectionIntersectsDefaultExcludedContent, args: [DEFAULT_EXCLUDED_CONTENT_SELECTOR] });
   if (checked[0]?.result !== false) return;
   await translateSelectedText(tab.id, info.selectionText);
 }
-chrome.contextMenus.onClicked.addListener(handleSelectionMenuClick);
+function dispatchSelectionMenuClick(
+  info: chrome.contextMenus.OnClickData,
+  tab?: chrome.tabs.Tab,
+): void {
+  void handleSelectionMenuClick(info, tab).catch(() => {});
+}
+chrome.contextMenus.onClicked.addListener(dispatchSelectionMenuClick);
 chrome.tabs.onRemoved.addListener((tabId) => {
   translationStateByTab.delete(tabId);
 });
-Object.assign(globalThis, { betterImmersiveBackground: { handleSelectionMenuClick } });
+Object.assign(globalThis, {
+  betterImmersiveBackground: {
+    dispatchSelectionMenuClick,
+    handleSelectionMenuClick,
+  },
+});
 
 async function automaticallyTranslateCompletedPage(
   tabId: number,
@@ -251,20 +440,77 @@ async function automaticallyTranslateCompletedPage(
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status !== "complete" || !tab.url) return;
-  void automaticallyTranslateCompletedPage(tabId, tab.url);
+  void refreshSelectionTranslationForTab(tabId).catch(() => {});
+  void automaticallyTranslateCompletedPage(tabId, tab.url).catch(() => {});
 });
 
 chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+  if (
+    isRecord(message) &&
+    message.kind === "sync-selection-translation"
+  ) {
+    void syncAndRefreshSelectionTranslationTabs().then(
+      () => safelySendResponse(sendResponse, { kind: "complete" }),
+      () => safelySendResponse(sendResponse, { kind: "failed" }),
+    );
+    return true;
+  }
+  if (isRecord(message) && message.kind === "open-options") {
+    void chrome.runtime.openOptionsPage().then(
+      () => safelySendResponse(sendResponse, { kind: "complete" }),
+      () => safelySendResponse(sendResponse, { kind: "failed" }),
+    );
+    return true;
+  }
+  if (
+    isRecord(message) &&
+    message.kind === "refresh-selection-translation" &&
+    typeof message.tabId === "number"
+  ) {
+    const tabId = message.tabId;
+    void syncSelectionTranslationContentScript()
+      .then(() => refreshSelectionTranslationForTab(tabId))
+      .then(
+        () => safelySendResponse(sendResponse, { kind: "complete" }),
+        () => safelySendResponse(sendResponse, { kind: "failed" }),
+      );
+    return true;
+  }
+  if (
+    isRecord(message) &&
+    message.kind === "translate-selection" &&
+    typeof message.selectionText === "string" &&
+    sender.tab?.id !== undefined
+  ) {
+    void selectionTranslationResult(
+      sender.tab.id,
+      message.selectionText,
+    ).then(
+      (response) => safelySendResponse(sendResponse, response),
+      () =>
+        safelySendResponse(sendResponse, {
+          kind: "failed",
+          failureKind: "extension",
+        }),
+    );
+    return true;
+  }
   if (isRecord(message) && message.kind === "translate-current-page" && typeof message.tabId === "number") {
     const tabId = message.tabId;
-    void enqueueTranslation(tabId, () => translateCurrentPage(tabId)).then(() => sendResponse({ kind: "complete" }), () => sendResponse({ kind: "failed" }));
+    void enqueueTranslation(tabId, () => translateCurrentPage(tabId)).then(
+      () => safelySendResponse(sendResponse, { kind: "complete" }),
+      () => safelySendResponse(sendResponse, { kind: "failed" }),
+    );
     return true;
   }
   if (isRecord(message) && message.kind === "translate-incremental-blocks" && Array.isArray(message.blocks) && message.blocks.every(isSemanticTextBlock) && sender.tab?.id !== undefined) {
     const tabId = sender.tab.id;
     const blocks = message.blocks;
     mergePendingIncrementalBlocks(tabId, blocks);
-    void scheduleIncrementalTranslation(tabId).then(() => sendResponse({ kind: "complete" }), () => sendResponse({ kind: "failed" }));
+    void scheduleIncrementalTranslation(tabId).then(
+      () => safelySendResponse(sendResponse, { kind: "complete" }),
+      () => safelySendResponse(sendResponse, { kind: "failed" }),
+    );
     return true;
   }
   if (isRecord(message) && message.kind === "retry-translation-batch" && typeof message.batchIndex === "number" && Array.isArray(message.blocks) && message.blocks.every(isSemanticTextBlock) && typeof message.targetLanguage === "string" && sender.tab?.id !== undefined) {
@@ -280,13 +526,19 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
       if (recovered) {
         const state = translationState(tabId);
         state.failedBatchCount = Math.max(0, state.failedBatchCount - 1);
-        void scheduleIncrementalTranslation(tabId);
+        void scheduleIncrementalTranslation(tabId).catch(() => {});
       }
-    }).then(() => sendResponse({ kind: "complete" }), () => sendResponse({ kind: "failed" }));
+    }).then(
+      () => safelySendResponse(sendResponse, { kind: "complete" }),
+      () => safelySendResponse(sendResponse, { kind: "failed" }),
+    );
     return true;
   }
   if (isRecord(message) && message.kind === "set-reading-mode" && typeof message.tabId === "number" && isReadingMode(message.mode)) {
-    void setReadingMode(message.tabId, message.mode).then(() => sendResponse({ kind: "complete" }), () => sendResponse({ kind: "failed" }));
+    void setReadingMode(message.tabId, message.mode).then(
+      () => safelySendResponse(sendResponse, { kind: "complete" }),
+      () => safelySendResponse(sendResponse, { kind: "failed" }),
+    );
     return true;
   }
   return false;

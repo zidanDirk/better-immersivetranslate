@@ -9,6 +9,7 @@ export interface WebsiteOverride {
   targetLanguage: string;
   translationPrompt: string;
   automaticTranslation: boolean;
+  selectionTranslation: "inherit" | "enabled" | "disabled";
 }
 
 export interface EffectiveTranslationPreferences {
@@ -38,7 +39,7 @@ export function websiteAccess(url: string): WebsiteAccess | null {
   }
 }
 
-async function loadWebsiteOverrides(): Promise<
+export async function loadWebsiteOverrides(): Promise<
   Record<string, WebsiteOverride>
 > {
   const stored = await chrome.storage.local.get(storageKey);
@@ -47,18 +48,61 @@ async function loadWebsiteOverrides(): Promise<
   );
 }
 
+export async function selectionTranslationRegistration(): Promise<{
+  excludeMatches: string[];
+  matches: string[];
+}> {
+  const [overrides, globalPreferences] = await Promise.all([
+    loadWebsiteOverrides(),
+    loadGlobalTranslationPreferences(),
+  ]);
+  if (globalPreferences.selectionTranslationEnabled) {
+    return {
+      matches: ["http://*/*", "https://*/*"],
+      excludeMatches: Object.values(overrides)
+        .filter(({ selectionTranslation }) => selectionTranslation === "disabled")
+        .map(({ origin }) => websiteAccess(origin)?.permissionPattern)
+        .filter((pattern): pattern is string => Boolean(pattern)),
+    };
+  }
+  return {
+    matches: Object.values(overrides)
+      .filter(({ selectionTranslation }) => selectionTranslation === "enabled")
+      .map(({ origin }) => websiteAccess(origin)?.permissionPattern)
+      .filter((pattern): pattern is string => Boolean(pattern)),
+    excludeMatches: [],
+  };
+}
+
+export async function resolveSelectionTranslationEnabled(
+  url?: string,
+): Promise<boolean> {
+  const globalPreferences = await loadGlobalTranslationPreferences();
+  const access = url ? websiteAccess(url) : null;
+  if (!access) return false;
+  const override = await loadWebsiteOverride(access.origin);
+  if (override.selectionTranslation === "enabled") return true;
+  if (override.selectionTranslation === "disabled") return false;
+  return globalPreferences.selectionTranslationEnabled;
+}
+
 export async function loadWebsiteOverride(
   origin: string,
 ): Promise<WebsiteOverride> {
   const overrides = await loadWebsiteOverrides();
-  return (
-    overrides[origin] ?? {
+  const override = overrides[origin];
+  return override
+    ? {
+        ...override,
+        selectionTranslation: override.selectionTranslation ?? "inherit",
+      }
+    : {
       origin,
       targetLanguage: "",
       translationPrompt: "",
       automaticTranslation: false,
-    }
-  );
+      selectionTranslation: "inherit",
+    };
 }
 
 export async function saveWebsiteOverride(
@@ -78,7 +122,12 @@ export async function isWebsitePermissionStillNeeded(
 ): Promise<boolean> {
   const overrides = await loadWebsiteOverrides();
   return Object.values(overrides).some((override) => {
-    if (!override.automaticTranslation) return false;
+    if (
+      !override.automaticTranslation &&
+      override.selectionTranslation !== "enabled"
+    ) {
+      return false;
+    }
     return (
       websiteAccess(override.origin)?.permissionPattern === permissionPattern
     );

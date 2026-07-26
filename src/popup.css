@@ -20,6 +20,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -45,6 +46,7 @@ button:hover {
 
 button:focus-visible,
 input:focus-visible,
+select:focus-visible,
 textarea:focus-visible {
   outline: 3px solid rgb(46 104 222 / 30%);
   outline-offset: 2px;
@@ -197,6 +199,7 @@ legend {
 }
 
 #website-override-form input:not([type="checkbox"]),
+#website-override-form select,
 #website-override-form textarea {
   width: 100%;
   margin-top: 5px;

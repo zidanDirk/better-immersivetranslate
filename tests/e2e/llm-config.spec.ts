@@ -290,3 +290,64 @@ test("POST 请求不可达时显示网络失败而不是 CORS 失败", async () 
     await fakeServer.close();
   }
 });
+
+test("设置存储失败时显示错误且不产生未捕获异常", async () => {
+  const { context, optionsPage } = await launchExtension();
+
+  try {
+    const pageErrors: string[] = [];
+    optionsPage.on("pageerror", (error) => pageErrors.push(error.message));
+    await optionsPage.evaluate(() => {
+      Object.defineProperty(chrome.storage.local, "set", {
+        value: async () => {
+          throw new Error("Storage is temporarily unavailable.");
+        },
+      });
+    });
+    await optionsPage.getByLabel("全局目标语言").fill("ja");
+
+    await optionsPage
+      .getByRole("button", { name: "保存全局目标语言" })
+      .click();
+
+    await expect(
+      optionsPage.getByText("全局目标语言保存失败，请重试"),
+    ).toBeVisible();
+    expect(pageErrors).toEqual([]);
+  } finally {
+    await context.close();
+  }
+});
+
+test("划词翻译同步失败时回滚界面和已保存设置", async () => {
+  const { context, optionsPage } = await launchExtension({
+    hostPermissions: ["http://*/*", "https://*/*"],
+  });
+
+  try {
+    const pageErrors: string[] = [];
+    optionsPage.on("pageerror", (error) => pageErrors.push(error.message));
+    await optionsPage.evaluate(() => {
+      Object.defineProperty(chrome.runtime, "sendMessage", {
+        value: async () => {
+          throw new Error("Extension context invalidated.");
+        },
+      });
+    });
+    const selectionTranslation = optionsPage.getByLabel(
+      "在所有网站启用划词翻译",
+    );
+
+    await selectionTranslation.check();
+
+    await expect(selectionTranslation).not.toBeChecked();
+    await expect(
+      optionsPage.getByText("划词翻译设置失败，请重试"),
+    ).toBeVisible();
+    await optionsPage.reload();
+    await expect(selectionTranslation).not.toBeChecked();
+    expect(pageErrors).toEqual([]);
+  } finally {
+    await context.close();
+  }
+});

@@ -1,5 +1,6 @@
 export interface GlobalTranslationPreferences {
   targetLanguage: string;
+  selectionTranslationEnabled: boolean;
 }
 
 const storageKey = "globalTranslationPreferences";
@@ -11,6 +12,8 @@ export async function loadGlobalTranslationPreferences(): Promise<GlobalTranslat
     | undefined;
   return {
     targetLanguage: preferences?.targetLanguage ?? "",
+    selectionTranslationEnabled:
+      preferences?.selectionTranslationEnabled ?? false,
   };
 }
 

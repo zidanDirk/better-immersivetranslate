@@ -454,3 +454,36 @@ test("同一 host 的其他网站覆盖仍需自动翻译时保留共享权限",
     await secondServer.close();
   }
 });
+
+test("网站自动翻译进行中关闭标签页不会产生后台未捕获错误", async () => {
+  const fakeServer = await startFakeOpenAiServer({
+    pageHtml: "<main><p>Close an automatically translated tab.</p></main>",
+    responseDelayMs: 300,
+  });
+  const { context, extensionId, optionsPage } = await launchExtension({
+    hostPermissions: ["http://127.0.0.1/*"],
+  });
+
+  try {
+    await saveConfiguration(optionsPage, fakeServer.endpoint);
+    const webErrors: string[] = [];
+    context.on("weberror", (webError) => {
+      webErrors.push(webError.error().message);
+    });
+    const page = await context.newPage();
+    await page.goto(fakeServer.pageUrl);
+    const popup = await openWebsiteOverride(context, extensionId, page);
+    await popup.getByLabel("网站自动翻译").check();
+    await expect(popup.getByText("网站自动翻译已开启")).toBeVisible();
+
+    await page.reload();
+    await fakeServer.receivedRequest;
+    await page.close();
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    expect(webErrors).toEqual([]);
+  } finally {
+    await context.close();
+    await fakeServer.close();
+  }
+});
