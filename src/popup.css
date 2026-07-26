@@ -1,0 +1,155 @@
+:root {
+  color: #172033;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  width: 360px;
+  margin: 0;
+  padding: 16px;
+  background: #f7f9fc;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+button {
+  min-height: 38px;
+  border: 1px solid #c7d2e4;
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: #24344d;
+  background: #fff;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: #5b8def;
+  background: #f2f6ff;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid #b8d0ff;
+  outline-offset: 2px;
+}
+
+#translate-current-page,
+#website-override-form button[type="submit"] {
+  width: 100%;
+  border-color: #2563eb;
+  color: #fff;
+  background: #2563eb;
+  font-weight: 650;
+}
+
+#translate-current-page:hover,
+#website-override-form button[type="submit"]:hover {
+  border-color: #1d4ed8;
+  background: #1d4ed8;
+}
+
+#translate-current-page {
+  min-height: 44px;
+}
+
+fieldset {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  min-width: 0;
+  margin: 14px 0;
+  padding: 10px;
+  border: 1px solid #d9e1ee;
+  border-radius: 10px;
+  background: #fff;
+}
+
+legend {
+  grid-column: 1 / -1;
+  padding: 0 5px;
+  color: #5d6b82;
+  font-size: 12px;
+}
+
+[data-reading-mode] {
+  width: 100%;
+  min-height: 38px;
+  padding: 6px 4px;
+  white-space: nowrap;
+}
+
+#open-website-override {
+  width: 100%;
+}
+
+#website-override-form {
+  max-height: 440px;
+  overflow-y: auto;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid #d9e1ee;
+  border-radius: 10px;
+  background: #fff;
+}
+
+#website-override-form h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+#website-origin,
+#website-permission-request,
+#website-override-status {
+  overflow-wrap: anywhere;
+  color: #5d6b82;
+  font-size: 12px;
+}
+
+#website-override-form label {
+  display: block;
+  margin-top: 12px;
+  font-weight: 600;
+}
+
+#website-override-form input:not([type="checkbox"]),
+#website-override-form textarea {
+  width: 100%;
+  margin-top: 5px;
+  border: 1px solid #c7d2e4;
+  border-radius: 7px;
+  padding: 8px;
+  color: #172033;
+  background: #fff;
+}
+
+#website-override-form textarea {
+  min-height: 88px;
+  resize: vertical;
+}
+
+#website-override-form label:has(input[type="checkbox"]) {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-weight: 500;
+}
+
+#website-override-form label:has(input[type="checkbox"]) input {
+  width: 16px;
+  height: 16px;
+}
+
+#website-override-form button[type="submit"] {
+  margin-top: 6px;
+}

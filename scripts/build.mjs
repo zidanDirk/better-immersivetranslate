@@ -7,6 +7,7 @@ for (const file of [
   "manifest.json",
   "options.html",
   "options.css",
+  "popup.css",
   "popup.html",
 ]) {
   await cp(`src/${file}`, `dist/${file}`);
