@@ -31,10 +31,13 @@ const app = requireElement<HTMLElement>("#app");
 
 app.innerHTML = `
   <header class="page-header">
-    <div>
-      <p class="eyebrow">自带 Key（BYOK）</p>
-      <h1>LLM 配置</h1>
-      <p class="subtitle">管理用于网页翻译的 OpenAI 兼容服务。</p>
+    <div class="header-copy">
+      <div class="header-brand">
+        <img src="icons/translation-48.png" alt="" />
+        <p class="eyebrow">自带 Key（BYOK）</p>
+      </div>
+      <h1>你的翻译工作台</h1>
+      <p class="subtitle">管理用于网页翻译的 OpenAI 兼容服务、语言偏好与固定译法。</p>
     </div>
     <button class="primary" id="add-configuration" type="button">新增 LLM 配置</button>
   </header>

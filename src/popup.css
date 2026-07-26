@@ -1,6 +1,6 @@
 :root {
-  color: #172033;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #11275a;
+  font-family: "Avenir Next", Avenir, "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-size: 14px;
   line-height: 1.45;
 }
@@ -12,8 +12,10 @@
 body {
   width: 360px;
   margin: 0;
-  padding: 16px;
-  background: #f7f9fc;
+  padding: 18px;
+  background:
+    radial-gradient(circle at 104% -5%, rgb(255 211 90 / 28%), transparent 34%),
+    linear-gradient(155deg, #f9fbff 0%, #f0f4ff 100%);
 }
 
 button,
@@ -23,44 +25,110 @@ textarea {
 }
 
 button {
-  min-height: 38px;
-  border: 1px solid #c7d2e4;
-  border-radius: 8px;
+  min-height: 40px;
+  border: 1px solid #d4def3;
+  border-radius: 12px;
   padding: 8px 12px;
-  color: #24344d;
-  background: #fff;
+  color: #18346e;
+  background: rgb(255 255 255 / 78%);
   cursor: pointer;
+  font-weight: 650;
+  transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
 }
 
 button:hover {
-  border-color: #5b8def;
-  background: #f2f6ff;
+  border-color: #7d9ce1;
+  background: #fff;
+  box-shadow: 0 7px 17px rgb(42 77 151 / 12%);
+  transform: translateY(-1px);
 }
 
 button:focus-visible,
 input:focus-visible,
 textarea:focus-visible {
-  outline: 3px solid #b8d0ff;
+  outline: 3px solid rgb(46 104 222 / 30%);
   outline-offset: 2px;
+}
+
+.popup-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 2px 17px;
+}
+
+.popup-mark {
+  width: 34px;
+  height: 34px;
+  filter: drop-shadow(0 5px 7px rgb(32 80 183 / 20%));
+}
+
+.eyebrow,
+.section-tag {
+  margin: 0;
+  color: #5970aa;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+h1 {
+  margin: 1px 0 0;
+  color: #102456;
+  font-size: 17px;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
+}
+
+.translate-panel {
+  padding: 14px 0 0;
+  border: 1px solid rgb(255 255 255 / 68%);
+  border-radius: 16px;
+  background: linear-gradient(135deg, #1f5fd5, #173e9a);
+  box-shadow: 0 13px 25px rgb(31 70 159 / 20%);
+}
+
+.section-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 14px 12px;
+}
+
+.section-heading p {
+  margin: 0;
+  color: #dbe8ff;
+  font-size: 12px;
+  text-align: right;
+}
+
+.section-tag {
+  color: #ffda66;
+  white-space: nowrap;
 }
 
 #translate-current-page,
 #website-override-form button[type="submit"] {
   width: 100%;
-  border-color: #2563eb;
-  color: #fff;
-  background: #2563eb;
-  font-weight: 650;
+  border-color: #fff;
+  color: #173d98;
+  background: #fff;
+  font-weight: 750;
 }
 
 #translate-current-page:hover,
 #website-override-form button[type="submit"]:hover {
-  border-color: #1d4ed8;
-  background: #1d4ed8;
+  border-color: #fff;
+  background: #edf3ff;
 }
 
 #translate-current-page {
-  min-height: 44px;
+  display: flex;
+  min-height: 45px;
+  align-items: center;
+  justify-content: space-between;
+  padding-inline: 14px;
 }
 
 fieldset {
@@ -68,18 +136,19 @@ fieldset {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
   min-width: 0;
-  margin: 14px 0;
-  padding: 10px;
-  border: 1px solid #d9e1ee;
-  border-radius: 10px;
-  background: #fff;
+  margin: 15px 0;
+  padding: 11px 10px 10px;
+  border: 1px solid #dbe4f6;
+  border-radius: 15px;
+  background: rgb(255 255 255 / 64%);
 }
 
 legend {
   grid-column: 1 / -1;
   padding: 0 5px;
-  color: #5d6b82;
-  font-size: 12px;
+  color: #52689c;
+  font-size: 11px;
+  font-weight: 750;
 }
 
 [data-reading-mode] {
@@ -90,7 +159,11 @@ legend {
 }
 
 #open-website-override {
+  display: flex;
   width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  color: #395487;
 }
 
 #website-override-form {
@@ -98,9 +171,10 @@ legend {
   overflow-y: auto;
   margin-top: 14px;
   padding: 14px;
-  border: 1px solid #d9e1ee;
-  border-radius: 10px;
-  background: #fff;
+  border: 1px solid #dbe4f6;
+  border-radius: 15px;
+  background: rgb(255 255 255 / 88%);
+  box-shadow: 0 12px 26px rgb(36 69 137 / 10%);
 }
 
 #website-override-form h2 {
@@ -112,7 +186,7 @@ legend {
 #website-permission-request,
 #website-override-status {
   overflow-wrap: anywhere;
-  color: #5d6b82;
+  color: #5b6e9b;
   font-size: 12px;
 }
 
@@ -126,8 +200,8 @@ legend {
 #website-override-form textarea {
   width: 100%;
   margin-top: 5px;
-  border: 1px solid #c7d2e4;
-  border-radius: 7px;
+  border: 1px solid #cdd9f0;
+  border-radius: 9px;
   padding: 8px;
   color: #172033;
   background: #fff;
@@ -152,4 +226,12 @@ legend {
 
 #website-override-form button[type="submit"] {
   margin-top: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+  }
 }

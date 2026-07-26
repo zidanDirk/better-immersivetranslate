@@ -11,6 +11,9 @@ test("弹窗以可读的宽度展示主操作和阅读方式", async () => {
     await popup.goto(`chrome-extension://${extensionId}/popup.html`);
 
     await expect(popup.locator("body")).toHaveCSS("width", "360px");
+    await expect(
+      popup.getByRole("heading", { name: "网页沉浸式翻译" }),
+    ).toBeVisible();
     const translateButton = popup.getByRole("button", {
       name: "翻译当前网页",
     });

@@ -1,8 +1,8 @@
 :root {
-  color: #17211c;
-  background: #f4f6f2;
+  color: #172a59;
+  background: #f3f6ff;
   font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "Avenir Next", Avenir, "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;
 }
 
@@ -12,6 +12,10 @@
 
 body {
   margin: 0;
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at 88% 2%, rgb(255 214 91 / 24%), transparent 19rem),
+    linear-gradient(135deg, #f7f9ff, #eef3ff 52%, #f8faff);
 }
 
 button,
@@ -21,11 +25,24 @@ textarea {
 }
 
 button {
-  border: 0;
-  border-radius: 0.65rem;
+  border: 1px solid transparent;
+  border-radius: 0.75rem;
   cursor: pointer;
   font-weight: 650;
   padding: 0.75rem 1rem;
+  transition: box-shadow 160ms ease, transform 160ms ease, background 160ms ease;
+}
+
+button:hover:not(:disabled) {
+  box-shadow: 0 7px 16px rgb(28 62 138 / 14%);
+  transform: translateY(-1px);
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid rgb(35 91 208 / 25%);
+  outline-offset: 2px;
 }
 
 button:disabled {
@@ -35,8 +52,8 @@ button:disabled {
 
 #app {
   margin: 0 auto;
-  max-width: 64rem;
-  padding: 4rem 2rem;
+  max-width: 70rem;
+  padding: 3.5rem 2rem 5rem;
 }
 
 .page-header {
@@ -44,11 +61,31 @@ button:disabled {
   display: flex;
   gap: 2rem;
   justify-content: space-between;
-  margin-bottom: 2rem;
+  margin-bottom: 1.25rem;
+  padding: 1.5rem 1.75rem;
+  border: 1px solid rgb(255 255 255 / 88%);
+  border-radius: 1.4rem;
+  background: linear-gradient(118deg, #1d4daa, #183781 70%, #142e6a);
+  box-shadow: 0 1.25rem 2.8rem rgb(24 55 129 / 20%);
+}
+
+.header-copy {
+  min-width: 0;
+}
+
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.header-brand img {
+  width: 1.65rem;
+  height: 1.65rem;
 }
 
 .eyebrow {
-  color: #337255;
+  color: #ffd866;
   font-size: 0.78rem;
   font-weight: 750;
   letter-spacing: 0.12em;
@@ -67,27 +104,35 @@ h1 {
   letter-spacing: -0.045em;
   line-height: 1;
   margin-bottom: 0.75rem;
+  color: #fff;
 }
 
 .subtitle,
 .configuration-card p,
 .empty-state p {
-  color: #667068;
+  color: #6879a2;
+}
+
+.page-header .subtitle {
+  max-width: 34rem;
+  margin-bottom: 0;
+  color: #d7e4ff;
 }
 
 .primary {
-  background: #246947;
-  color: white;
+  background: #1f5fd5;
+  color: #fff;
 }
 
 .secondary {
-  background: #e5e9e4;
-  color: #26322a;
+  border-color: #d7e1f5;
+  background: #edf2fd;
+  color: #294a91;
 }
 
 .danger {
-  background: #f8e7e3;
-  color: #91392d;
+  background: #fff0ed;
+  color: #a34337;
 }
 
 .configuration-list,
@@ -98,9 +143,11 @@ h1 {
 
 .translation-instructions,
 .global-preferences {
-  background: white;
-  border: 1px solid #dfe5de;
-  border-radius: 1rem;
+  position: relative;
+  overflow: hidden;
+  background: rgb(255 255 255 / 88%);
+  border: 1px solid #dce5f7;
+  border-radius: 1.15rem;
   margin-bottom: 1rem;
   padding: 1.5rem;
 }
@@ -109,6 +156,17 @@ h1 {
 .global-preferences h2 {
   font-size: 1.1rem;
   margin-bottom: 0.35rem;
+}
+
+.translation-instructions::before,
+.global-preferences::before {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: linear-gradient(#2b6ee8, #ffc93d);
+  content: "";
 }
 
 .translation-instructions p,
@@ -124,14 +182,14 @@ h1 {
 }
 
 .instruction-actions p {
-  color: #337255;
+  color: #265bbd;
   margin-bottom: 0;
   min-height: 1.25rem;
 }
 
 .terminology-header {
   align-items: center;
-  border-top: 1px solid #dfe5de;
+  border-top: 1px solid #dce5f7;
   display: flex;
   justify-content: space-between;
   margin-top: 1.5rem;
@@ -144,8 +202,9 @@ h1 {
 
 .terminology-rule {
   align-items: center;
-  background: #f7f9f6;
-  border-radius: 0.65rem;
+  background: #f4f7ff;
+  border: 1px solid #e0e8f9;
+  border-radius: 0.8rem;
   display: flex;
   justify-content: space-between;
   margin-top: 0.75rem;
@@ -164,7 +223,7 @@ h1 {
 }
 
 .terminology-form {
-  border-top: 1px solid #dfe5de;
+  border-top: 1px solid #dce5f7;
   margin-top: 1rem;
   padding-top: 1rem;
 }
@@ -183,9 +242,9 @@ h1 {
 
 .cache-management {
   align-items: center;
-  background: white;
-  border: 1px solid #dfe5de;
-  border-radius: 1rem;
+  background: rgb(255 255 255 / 78%);
+  border: 1px solid #dce5f7;
+  border-radius: 1.15rem;
   display: flex;
   gap: 2rem;
   justify-content: space-between;
@@ -204,16 +263,16 @@ h1 {
 }
 
 .cache-management .cache-status {
-  color: #337255;
+  color: #265bbd;
   font-size: 0.9rem;
   min-height: 1.25rem;
 }
 
 .security-notice {
   align-items: start;
-  background: #e7f1eb;
-  border: 1px solid #c7ddd0;
-  border-radius: 1rem;
+  background: #fff9e7;
+  border: 1px solid #f2df9b;
+  border-radius: 1.15rem;
   display: flex;
   gap: 0.9rem;
   margin-bottom: 1rem;
@@ -226,13 +285,13 @@ h1 {
 }
 
 .security-notice p {
-  color: #3f5d4c;
+  color: #67582c;
   margin-bottom: 0.2rem;
 }
 
 .security-icon {
   align-items: center;
-  background: #337255;
+  background: #d99b00;
   border-radius: 50%;
   color: white;
   display: flex;
@@ -246,10 +305,10 @@ h1 {
 .empty-state,
 .configuration-card,
 .configuration-form {
-  background: white;
-  border: 1px solid #dfe5de;
-  border-radius: 1rem;
-  box-shadow: 0 0.75rem 2.5rem rgb(36 70 51 / 6%);
+  background: rgb(255 255 255 / 88%);
+  border: 1px solid #dce5f7;
+  border-radius: 1.15rem;
+  box-shadow: 0 0.75rem 2.5rem rgb(33 67 145 / 7%);
   padding: 1.5rem;
 }
 
@@ -263,7 +322,7 @@ h1 {
 }
 
 .configuration-card .connection-status {
-  color: #337255;
+  color: #265bbd;
   font-size: 0.9rem;
   min-height: 1.25rem;
 }
@@ -294,17 +353,17 @@ label {
 
 input,
 textarea {
-  background: #fbfcfa;
-  border: 1px solid #cad2ca;
-  border-radius: 0.6rem;
+  background: #fbfcff;
+  border: 1px solid #cbd8f1;
+  border-radius: 0.7rem;
   color: inherit;
   padding: 0.75rem;
 }
 
 input:focus,
 textarea:focus {
-  border-color: #337255;
-  outline: 3px solid rgb(51 114 85 / 15%);
+  border-color: #2d6be1;
+  outline: 3px solid rgb(45 107 225 / 15%);
 }
 
 .wide {
@@ -345,5 +404,14 @@ textarea:focus {
 
   .wide {
     grid-column: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }

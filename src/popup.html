@@ -7,16 +7,31 @@
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <button id="translate-current-page" type="button">翻译当前网页</button>
-    <fieldset>
-      <legend>阅读方式</legend>
-      <button type="button" data-reading-mode="bilingual">双语对照</button>
-      <button type="button" data-reading-mode="translation-only">
-        仅译文
-      </button>
-      <button type="button" data-reading-mode="original-only">仅原文</button>
-    </fieldset>
-    <button id="open-website-override" type="button">网站覆盖设置</button>
+    <header class="popup-header">
+      <img class="popup-mark" src="icons/translation-48.png" alt="" />
+      <div>
+        <p class="eyebrow">BYOK WEB TRANSLATOR</p>
+        <h1>网页沉浸式翻译</h1>
+      </div>
+    </header>
+    <main>
+      <section class="translate-panel" aria-labelledby="translate-title">
+        <div class="section-heading">
+          <span class="section-tag">即时操作</span>
+          <p id="translate-title">保留原文，在段落下方显示译文。</p>
+        </div>
+        <button id="translate-current-page" type="button">翻译当前网页 <span aria-hidden="true">→</span></button>
+      </section>
+      <fieldset>
+        <legend>阅读方式</legend>
+        <button type="button" data-reading-mode="bilingual">双语对照</button>
+        <button type="button" data-reading-mode="translation-only">
+          仅译文
+        </button>
+        <button type="button" data-reading-mode="original-only">仅原文</button>
+      </fieldset>
+      <button id="open-website-override" type="button"><span>网站覆盖设置</span><span aria-hidden="true">›</span></button>
+    </main>
     <form id="website-override-form" hidden>
       <h2>网站覆盖设置</h2>
       <p id="website-origin"></p>

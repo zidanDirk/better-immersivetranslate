@@ -140,7 +140,7 @@ test("翻译界面按批次显示等待、处理和完成状态", async () => {
     pageHtml: `<main>${paragraphs}</main>`,
     responseSequence: [
       {
-        delayMs: 500,
+        delayMs: 250,
         responseBody: translationCompletion(
           Array.from({ length: 10 }, (_, index) => ({
             id: `block-${index}`,
@@ -149,7 +149,7 @@ test("翻译界面按批次显示等待、处理和完成状态", async () => {
         ),
       },
       {
-        delayMs: 500,
+        delayMs: 700,
         responseBody: translationCompletion([
           { id: "block-10", text: "Translation 11" },
         ]),
@@ -173,6 +173,9 @@ test("翻译界面按批次显示等待、处理和完成状态", async () => {
     await expect(progress).toBeVisible();
     await expect(progress).toContainText("正在翻译：已完成 0/2 批次");
     await expect(progress).toHaveCSS("position", "fixed");
+    await expect(
+      progress.locator("[data-better-immersive-progress-meter]"),
+    ).toHaveCSS("width", "0px");
     const sourcePositionDuringTranslation = await firstSource.boundingBox();
     expect(sourcePositionBeforeTranslation).not.toBeNull();
     expect(sourcePositionDuringTranslation).not.toBeNull();
@@ -181,6 +184,10 @@ test("翻译界面按批次显示等待、处理和完成状态", async () => {
       y: sourcePositionBeforeTranslation!.y,
     });
     await expect(progress).toContainText("正在翻译：已完成 1/2 批次");
+    const progressMeterWidth = await progress
+      .locator("[data-better-immersive-progress-meter]")
+      .evaluate((meter) => meter.getBoundingClientRect().width);
+    expect(progressMeterWidth).toBeGreaterThan(0);
     await expect(progress).toHaveCount(0);
     await expect(page.getByText("Translation 1", { exact: true })).toBeVisible();
     await expect(

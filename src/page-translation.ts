@@ -31,18 +31,45 @@ export function initializeTranslationProgress(batchCount: number): void {
     zIndex: "2147483647",
     minWidth: "220px",
     maxWidth: "360px",
-    padding: "12px 14px",
-    border: "1px solid #bfdbfe",
-    borderRadius: "10px",
-    color: "#1e3a5f",
-    background: "#eff6ff",
-    boxShadow: "0 8px 24px rgb(15 23 42 / 18%)",
-    font: "14px/1.45 -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+    padding: "14px",
+    border: "1px solid #c9d8f6",
+    borderRadius: "16px",
+    color: "#18346e",
+    background: "linear-gradient(135deg, #fafdff, #edf3ff)",
+    boxShadow: "0 16px 34px rgb(25 62 136 / 22%)",
+    font: "14px/1.45 Avenir Next, PingFang SC, Microsoft YaHei, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif",
+  });
+  const label = document.createElement("p");
+  label.textContent = "TRANSLATING";
+  Object.assign(label.style, {
+    margin: "0 0 5px",
+    color: "#5970aa",
+    fontSize: "10px",
+    fontWeight: "800",
+    letterSpacing: "0.12em",
   });
   const summary = document.createElement("p");
   summary.dataset.betterImmersiveProgressSummary = "";
-  summary.style.margin = "0";
-  progress.append(summary);
+  Object.assign(summary.style, { margin: "0", fontWeight: "700" });
+  const meter = document.createElement("div");
+  Object.assign(meter.style, {
+    height: "5px",
+    marginTop: "10px",
+    overflow: "hidden",
+    borderRadius: "999px",
+    background: "#dbe5fa",
+  });
+  const meterFill = document.createElement("div");
+  meterFill.dataset.betterImmersiveProgressMeter = "";
+  Object.assign(meterFill.style, {
+    width: "0%",
+    height: "100%",
+    borderRadius: "inherit",
+    background: "linear-gradient(90deg, #286ae2, #5b8ff0 68%, #ffd45a)",
+    transition: "width 180ms ease",
+  });
+  meter.append(meterFill);
+  progress.append(label, summary, meter);
   const failures = document.createElement("div");
   failures.dataset.betterImmersiveProgressFailures = "";
   failures.style.marginTop = "8px";
@@ -119,6 +146,12 @@ export function updateTranslationBatchProgress(batchIndex: number, progress: Tra
   }
   const completed = statuses.filter((status) => status === "complete").length;
   const failed = statuses.filter((status) => status === "failed").length;
+  const meter = container.querySelector<HTMLElement>(
+    "[data-better-immersive-progress-meter]",
+  );
+  if (meter) {
+    meter.style.width = `${((completed + failed) / statuses.length) * 100}%`;
+  }
   const summary = container.querySelector<HTMLElement>(
     "[data-better-immersive-progress-summary]",
   );
