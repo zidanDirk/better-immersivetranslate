@@ -12,6 +12,11 @@ export interface FakeOpenAiResponse {
   statusCode?: number;
 }
 
+export interface FakeOpenAiRequestTiming {
+  receivedAt: number;
+  respondedAt?: number;
+}
+
 export async function startFakeOpenAiServer(options?: {
   cors?: boolean;
   disconnectPost?: boolean;
@@ -26,10 +31,15 @@ export async function startFakeOpenAiServer(options?: {
   receivedPreflightRequests: string[];
   receivedRequest: Promise<ReceivedOpenAiRequest>;
   receivedRequests: ReceivedOpenAiRequest[];
+  maxConcurrentPostRequests: () => number;
+  postRequestTimings: FakeOpenAiRequestTiming[];
   close: () => Promise<void>;
 }> {
   const receivedPreflightRequests: string[] = [];
   const receivedRequests: ReceivedOpenAiRequest[] = [];
+  const postRequestTimings: FakeOpenAiRequestTiming[] = [];
+  let activePostRequestCount = 0;
+  let maxConcurrentPostRequestCount = 0;
   let resolveRequest: (request: ReceivedOpenAiRequest) => void = () => {};
   const receivedRequest = new Promise<ReceivedOpenAiRequest>((resolve) => {
     resolveRequest = resolve;
@@ -78,7 +88,14 @@ export async function startFakeOpenAiServer(options?: {
         body: JSON.parse(bodyText) as unknown,
       };
       receivedRequests.push(receivedRequest);
+      const requestTiming: FakeOpenAiRequestTiming = { receivedAt: Date.now() };
+      postRequestTimings.push(requestTiming);
       resolveRequest(receivedRequest);
+      activePostRequestCount += 1;
+      maxConcurrentPostRequestCount = Math.max(
+        maxConcurrentPostRequestCount,
+        activePostRequestCount,
+      );
       const plannedResponse =
         options?.responseSequence?.[receivedRequests.length - 1];
       setTimeout(() => {
@@ -97,6 +114,8 @@ export async function startFakeOpenAiServer(options?: {
                 : { choices: [{ message: { content: "OK" } }] },
           ),
         );
+        requestTiming.respondedAt = Date.now();
+        activePostRequestCount -= 1;
       }, plannedResponse?.delayMs ?? options?.responseDelayMs ?? 0);
     });
   });
@@ -117,6 +136,8 @@ export async function startFakeOpenAiServer(options?: {
     receivedPreflightRequests,
     receivedRequest,
     receivedRequests,
+    maxConcurrentPostRequests: () => maxConcurrentPostRequestCount,
+    postRequestTimings,
     close: () =>
       new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));

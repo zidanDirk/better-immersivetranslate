@@ -24,6 +24,7 @@ import type { TranslationInstructions } from "./translation-instructions.js";
 
 const selectionMenuId = "translate-selected-text";
 const translationBatchSize = 10;
+const maximumConcurrentTranslationBatches = 2;
 
 interface TabTranslationState {
   failedBatchCount: number;
@@ -119,11 +120,21 @@ async function translateBlocks(
   const batches = Array.from({ length: Math.ceil(blocks.length / translationBatchSize) }, (_, index) => blocks.slice(index * translationBatchSize, (index + 1) * translationBatchSize));
   await chrome.scripting.executeScript({ target: { tabId }, func: initializeTranslationProgress, args: [batches.length] });
   let failureCount = 0;
-  for (const [batchIndex, batch] of batches.entries()) {
-    if (!(await runTranslationBatch(tabId, batchIndex, { blocks: batch, targetLanguage }, instructions))) {
-      failureCount += 1;
-    }
-  }
+  let nextBatchIndex = 0;
+  const workerCount = Math.min(maximumConcurrentTranslationBatches, batches.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextBatchIndex < batches.length) {
+        const batchIndex = nextBatchIndex;
+        nextBatchIndex += 1;
+        const batch = batches[batchIndex];
+        if (!batch) continue;
+        if (!(await runTranslationBatch(tabId, batchIndex, { blocks: batch, targetLanguage }, instructions))) {
+          failureCount += 1;
+        }
+      }
+    }),
+  );
   return failureCount;
 }
 

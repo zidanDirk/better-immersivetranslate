@@ -18,6 +18,119 @@ function requestBody(request: ReceivedOpenAiRequest): {
   };
 }
 
+test("多批语义文本块以最多两个并发请求完成，并按批次写入译文", async () => {
+  const paragraphs = Array.from(
+    { length: 30 },
+    (_, index) => `<p>Concurrent source ${index + 1}</p>`,
+  ).join("");
+  const fakeServer = await startFakeOpenAiServer({
+    pageHtml: `<main>${paragraphs}</main>`,
+    responseSequence: Array.from({ length: 3 }, (_, batchIndex) => ({
+      delayMs: batchIndex === 0 ? 250 : 100,
+      responseBody: translationCompletion(
+        Array.from({ length: 10 }, (_, blockOffset) => {
+          const blockIndex = batchIndex * 10 + blockOffset;
+          return {
+            id: `block-${blockIndex}`,
+            text: `Concurrent translation ${blockIndex + 1}`,
+          };
+        }),
+      ),
+    })),
+  });
+  const { context, extensionId, optionsPage } = await launchExtension({
+    hostPermissions: ["http://127.0.0.1/*"],
+  });
+
+  try {
+    await saveMinimalLlmConfiguration(optionsPage, fakeServer.endpoint);
+    const page = await context.newPage();
+    await page.goto(fakeServer.pageUrl);
+
+    await triggerCurrentPageTranslation(context, extensionId, page);
+
+    await expect(
+      page.getByText("Concurrent translation 30", { exact: true }),
+    ).toBeVisible();
+    expect(fakeServer.maxConcurrentPostRequests()).toBe(2);
+    expect(fakeServer.receivedRequests).toHaveLength(3);
+    const firstRequestAt = fakeServer.postRequestTimings[0]?.receivedAt;
+    const lastResponseAt = fakeServer.postRequestTimings.at(-1)?.respondedAt;
+    const firstBatchRespondedAt = fakeServer.postRequestTimings[0]?.respondedAt;
+    const secondBatchRespondedAt = fakeServer.postRequestTimings[1]?.respondedAt;
+    expect(firstRequestAt).toBeDefined();
+    expect(lastResponseAt).toBeDefined();
+    expect(firstBatchRespondedAt).toBeDefined();
+    expect(secondBatchRespondedAt).toBeDefined();
+    expect(secondBatchRespondedAt!).toBeLessThan(firstBatchRespondedAt!);
+    expect(lastResponseAt! - firstRequestAt!).toBeLessThan(650);
+  } finally {
+    await context.close();
+    await fakeServer.close();
+  }
+});
+
+test("一个并发批次失败时，其他批次仍完成并保留失败重试入口", async () => {
+  const paragraphs = Array.from(
+    { length: 30 },
+    (_, index) => `<p>Independent source ${index + 1}</p>`,
+  ).join("");
+  const fakeServer = await startFakeOpenAiServer({
+    pageHtml: `<main>${paragraphs}</main>`,
+    responseSequence: [
+      {
+        delayMs: 100,
+        responseBody: translationCompletion(
+          Array.from({ length: 10 }, (_, index) => ({
+            id: `block-${index}`,
+            text: `Independent translation ${index + 1}`,
+          })),
+        ),
+      },
+      { delayMs: 100, statusCode: 401 },
+      {
+        delayMs: 100,
+        responseBody: translationCompletion(
+          Array.from({ length: 10 }, (_, index) => ({
+            id: `block-${index + 20}`,
+            text: `Independent translation ${index + 21}`,
+          })),
+        ),
+      },
+    ],
+  });
+  const { context, extensionId, optionsPage } = await launchExtension({
+    hostPermissions: ["http://127.0.0.1/*"],
+  });
+
+  try {
+    await saveMinimalLlmConfiguration(optionsPage, fakeServer.endpoint);
+    const page = await context.newPage();
+    await page.goto(fakeServer.pageUrl);
+
+    await triggerCurrentPageTranslation(context, extensionId, page);
+
+    const progress = page.getByRole("region", { name: "翻译进度" });
+    await expect(progress).toContainText("翻译进度：已完成 2/3 批次，失败 1 批次");
+    await expect(
+      progress.getByRole("button", { name: "重试批次 2" }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Independent translation 1", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Independent translation 30", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Independent translation 11", { exact: true }),
+    ).toHaveCount(0);
+    expect(fakeServer.maxConcurrentPostRequests()).toBe(2);
+  } finally {
+    await context.close();
+    await fakeServer.close();
+  }
+});
+
 test("翻译界面按批次显示等待、处理和完成状态", async () => {
   const paragraphs = Array.from(
     { length: 11 },
