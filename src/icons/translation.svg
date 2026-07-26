@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="网页沉浸式翻译">
+  <defs>
+    <linearGradient id="background" x1="20" y1="12" x2="108" y2="116" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2677F3"/>
+      <stop offset="1" stop-color="#1749B8"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="112" height="112" rx="29" fill="url(#background)"/>
+  <path d="M27 31c0-7.18 5.82-13 13-13h38c7.18 0 13 5.82 13 13v27c0 7.18-5.82 13-13 13H56L40 84V71c-7.18 0-13-5.82-13-13V31Z" fill="#FFF"/>
+  <path d="M45 55 55 32h7l10 23h-7l-1.72-4.34H53.54L51.82 55h-6.7Zm10.72-9.4h5.38l-2.7-7.04-2.68 7.04Z" fill="#1C57D4"/>
+  <path d="M66 77c0-7.18 5.82-13 13-13h19c7.18 0 13 5.82 13 13v16c0 7.18-5.82 13-13 13H86l-10 9v-9c-5.52-1.33-10-6.3-10-12V77Z" fill="#FFD45A"/>
+  <path d="M79 78h5.3v4.1h9.2V78h5.3v4.1h5v4.7h-5v3.9c0 7.34-3.55 12.54-10.04 15.3l-2.66-4.44c4.55-1.77 7.4-4.58 7.4-10.48v-4.3h-9.2v2.5c0 5.04-1.84 8.56-4.82 11.18l-3.66-3.9c2.1-1.82 3.18-3.88 3.18-7.5v-2.28h-4.8v-4.7h4.8V78Z" fill="#805A00"/>
+</svg>

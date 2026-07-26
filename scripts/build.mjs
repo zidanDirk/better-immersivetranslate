@@ -12,3 +12,5 @@ for (const file of [
 ]) {
   await cp(`src/${file}`, `dist/${file}`);
 }
+
+await cp("src/icons", "dist/icons", { recursive: true });
