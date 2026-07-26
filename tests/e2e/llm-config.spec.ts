@@ -137,6 +137,38 @@ test("用户可以通过本地 fake OpenAI-compatible server 验证 LLM 配置",
   }
 });
 
+test("JSON mode 配置的连接测试发送 JSON 探测消息", async () => {
+  const fakeServer = await startFakeOpenAiServer();
+  const { context, optionsPage } = await launchExtension();
+
+  try {
+    await saveConfiguration(optionsPage, {
+      name: "JSON mode 连接",
+      endpoint: fakeServer.endpoint,
+      requestParameters: '{"response_format":{"type":"json_object"}}',
+    });
+
+    await optionsPage
+      .getByRole("button", { name: "测试连接 JSON mode 连接" })
+      .click();
+
+    await expect(optionsPage.getByText("连接成功")).toBeVisible();
+    const received = await fakeServer.receivedRequest;
+    expect(received.body).toMatchObject({
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "user",
+          content: 'Return JSON only: {"status":"ok"}.',
+        },
+      ],
+    });
+  } finally {
+    await context.close();
+    await fakeServer.close();
+  }
+});
+
 test("连接测试明确显示认证失败", async () => {
   const fakeServer = await startFakeOpenAiServer({ statusCode: 401 });
   const { context, optionsPage } = await launchExtension();

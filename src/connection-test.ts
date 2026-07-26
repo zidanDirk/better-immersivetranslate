@@ -30,6 +30,15 @@ function isOpenAiChatCompletion(value: unknown): boolean {
   return typeof firstChoice.message.content === "string";
 }
 
+function usesJsonObjectResponseFormat(
+  requestParameters: Record<string, unknown>,
+): boolean {
+  const responseFormat = requestParameters.response_format;
+  return (
+    isRecord(responseFormat) && responseFormat.type === "json_object"
+  );
+}
+
 async function canReachChatCompletions(url: string): Promise<boolean> {
   try {
     await fetch(url, {
@@ -60,13 +69,23 @@ export async function testLlmConnection(
 
   let response: Response;
   try {
+    const requestParameters = effectiveRequestParameters(
+      configuration.requestParameters,
+    );
     response = await fetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify({
-        ...effectiveRequestParameters(configuration.requestParameters),
+        ...requestParameters,
         model: configuration.model,
-        messages: [{ role: "user", content: "Reply with OK." }],
+        messages: [
+          {
+            role: "user",
+            content: usesJsonObjectResponseFormat(requestParameters)
+              ? 'Return JSON only: {"status":"ok"}.'
+              : "Reply with OK.",
+          },
+        ],
       }),
       signal: AbortSignal.timeout(5_000),
     });
