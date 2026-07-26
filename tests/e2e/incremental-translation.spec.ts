@@ -240,7 +240,7 @@ test("增量批次失败时显示状态并可沿用批次恢复", async () => {
           { id: "block-0", text: "初始译文。" },
         ]),
       },
-      { statusCode: 429 },
+      ...Array.from({ length: 4 }, () => ({ statusCode: 429 })),
       {
         responseBody: translationCompletion([
           { id: "block-1", text: "恢复后的动态译文。" },
@@ -275,13 +275,13 @@ test("增量批次失败时显示状态并可沿用批次恢复", async () => {
     await expect(
       progress.getByText("批次 1：请求受限：请稍后手动重试"),
     ).toBeVisible();
-    expect(fakeServer.receivedRequests).toHaveLength(2);
+    expect(fakeServer.receivedRequests).toHaveLength(5);
 
     await progress.getByRole("button", { name: "重试批次 1" }).click();
     await expect(page.getByText("恢复后的动态译文。")).toBeVisible();
     await expect(page.getByText("后续动态译文。")).toBeVisible();
     await expect(progress).toHaveCount(0);
-    await expect.poll(() => fakeServer.receivedRequests).toHaveLength(4);
+    await expect.poll(() => fakeServer.receivedRequests).toHaveLength(7);
   } finally {
     await context.close();
     await fakeServer.close();

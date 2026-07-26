@@ -57,13 +57,33 @@ async function runTranslationBatch(
   batchIndex: number,
   retryBatch: RetryTranslationBatch,
   instructions: TranslationInstructions,
+  maximumAutomaticRetryCount = 3,
 ): Promise<boolean> {
   await chrome.scripting.executeScript({ target: { tabId }, func: updateTranslationBatchProgress, args: [batchIndex, { status: "processing" }] });
-  const result = await translateSemanticTextBatch(
+  let result = await translateSemanticTextBatch(
     retryBatch.blocks,
     retryBatch.targetLanguage,
     instructions,
   );
+  for (
+    let retryIndex = 0;
+    retryIndex < maximumAutomaticRetryCount &&
+    result.kind === "failed" &&
+    (result.failureKind === "network" ||
+      result.failureKind === "rate-limit" ||
+      result.failureKind === "response-format" ||
+      result.failureKind === "timeout");
+    retryIndex += 1
+  ) {
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.min(100 * 2 ** retryIndex, 400)),
+    );
+    result = await translateSemanticTextBatch(
+      retryBatch.blocks,
+      retryBatch.targetLanguage,
+      instructions,
+    );
+  }
   if (result.kind === "failed") {
     await chrome.scripting.executeScript({ target: { tabId }, func: updateTranslationBatchProgress, args: [batchIndex, { status: "failed", failureKind: result.failureKind, retryBatch }] });
     return false;
@@ -245,7 +265,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
       const recovered = await runTranslationBatch(tabId, batchIndex, {
         blocks,
         targetLanguage,
-      }, (await resolveTranslationPreferences(sender.tab?.url)).instructions);
+      }, (await resolveTranslationPreferences(sender.tab?.url)).instructions, 0);
       if (recovered) {
         const state = translationState(tabId);
         state.failedBatchCount = Math.max(0, state.failedBatchCount - 1);

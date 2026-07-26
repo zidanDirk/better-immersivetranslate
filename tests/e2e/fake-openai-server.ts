@@ -23,10 +23,12 @@ export async function startFakeOpenAiServer(options?: {
 }): Promise<{
   endpoint: string;
   pageUrl: string;
+  receivedPreflightRequests: string[];
   receivedRequest: Promise<ReceivedOpenAiRequest>;
   receivedRequests: ReceivedOpenAiRequest[];
   close: () => Promise<void>;
 }> {
+  const receivedPreflightRequests: string[] = [];
   const receivedRequests: ReceivedOpenAiRequest[] = [];
   let resolveRequest: (request: ReceivedOpenAiRequest) => void = () => {};
   const receivedRequest = new Promise<ReceivedOpenAiRequest>((resolve) => {
@@ -49,6 +51,7 @@ export async function startFakeOpenAiServer(options?: {
     }
 
     if (request.method === "OPTIONS") {
+      receivedPreflightRequests.push(request.url ?? "");
       response.writeHead(204);
       response.end();
       return;
@@ -111,6 +114,7 @@ export async function startFakeOpenAiServer(options?: {
   return {
     endpoint: `http://127.0.0.1:${address.port}/v1`,
     pageUrl: `http://127.0.0.1:${address.port}/test-page`,
+    receivedPreflightRequests,
     receivedRequest,
     receivedRequests,
     close: () =>

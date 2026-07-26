@@ -110,6 +110,7 @@ test("批次认证失败时显示原因且原文和页面交互仍可用", async
     await expect(
       progress.getByText("批次 1：认证失败：请检查 API Key"),
     ).toBeVisible();
+    expect(fakeServer.receivedRequests).toHaveLength(1);
     await expect(page.getByText("Original remains readable.")).toBeVisible();
     await page.getByRole("button", { name: "继续使用页面" }).click();
     await expect(page.getByText("页面仍可交互")).toBeVisible();
@@ -119,10 +120,17 @@ test("批次认证失败时显示原因且原文和页面交互仍可用", async
   }
 });
 
-test("批次限流失败时显示明确原因", async () => {
+test("批次限流失败后自动重试并恢复译文", async () => {
   const fakeServer = await startFakeOpenAiServer({
     pageHtml: "<main><p>Rate limited source.</p></main>",
-    statusCode: 429,
+    responseSequence: [
+      { statusCode: 429 },
+      {
+        responseBody: translationCompletion([
+          { id: "block-0", text: "Recovered after rate limit." },
+        ]),
+      },
+    ],
   });
   const { context, extensionId, optionsPage } = await launchExtension({
     hostPermissions: ["http://127.0.0.1/*"],
@@ -136,21 +144,34 @@ test("批次限流失败时显示明确原因", async () => {
     await triggerCurrentPageTranslation(context, extensionId, page);
 
     await expect(
-      page
-        .getByRole("region", { name: "翻译进度" })
-        .getByText("批次 1：请求受限：请稍后手动重试"),
+      page.getByText("Recovered after rate limit.", { exact: true }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "翻译进度" }),
+    ).toHaveCount(0);
+    expect(fakeServer.receivedRequests).toHaveLength(2);
   } finally {
     await context.close();
     await fakeServer.close();
   }
 });
 
-test("批次超时时显示明确原因", async () => {
+test("批次超时后自动重试并恢复译文", async () => {
   const fakeServer = await startFakeOpenAiServer({
     pageHtml: "<main><p>Slow source.</p></main>",
-    responseDelayMs: 6_000,
-    responseBody: translationCompletion([{ id: "block-0", text: "Late translation." }]),
+    responseSequence: [
+      {
+        delayMs: 6_000,
+        responseBody: translationCompletion([
+          { id: "block-0", text: "Late translation." },
+        ]),
+      },
+      {
+        responseBody: translationCompletion([
+          { id: "block-0", text: "Recovered after timeout." },
+        ]),
+      },
+    ],
   });
   const { context, extensionId, optionsPage } = await launchExtension({
     hostPermissions: ["http://127.0.0.1/*"],
@@ -164,10 +185,12 @@ test("批次超时时显示明确原因", async () => {
     await triggerCurrentPageTranslation(context, extensionId, page);
 
     await expect(
-      page
-        .getByRole("region", { name: "翻译进度" })
-        .getByText("批次 1：请求超时：请手动重试"),
-    ).toBeVisible({ timeout: 7_000 });
+      page.getByText("Recovered after timeout.", { exact: true }),
+    ).toBeVisible({ timeout: 8_000 });
+    await expect(
+      page.getByRole("region", { name: "翻译进度" }),
+    ).toHaveCount(0);
+    expect(fakeServer.receivedRequests).toHaveLength(2);
   } finally {
     await context.close();
     await fakeServer.close();
@@ -199,6 +222,7 @@ test("批次 CORS 失败时显示明确原因", async () => {
         .getByText("批次 1：CORS 失败：服务未允许浏览器跨域请求"),
     ).toBeVisible();
     expect(providerServer.receivedRequests).toHaveLength(0);
+    expect(providerServer.receivedPreflightRequests).toHaveLength(1);
   } finally {
     await context.close();
     await providerServer.close();
@@ -216,6 +240,15 @@ test("批次网络失败时显示明确原因", async () => {
   const { context, extensionId, optionsPage } = await launchExtension({
     hostPermissions: [`${new URL(pageServer.pageUrl).origin}/*`],
   });
+  const failedTranslationRequests: string[] = [];
+  context.on("requestfailed", (request) => {
+    if (
+      request.method() === "POST" &&
+      request.url().startsWith(unavailableEndpoint)
+    ) {
+      failedTranslationRequests.push(request.url());
+    }
+  });
 
   try {
     await saveMinimalLlmConfiguration(optionsPage, unavailableEndpoint);
@@ -229,6 +262,7 @@ test("批次网络失败时显示明确原因", async () => {
         .getByRole("region", { name: "翻译进度" })
         .getByText("批次 1：网络失败：无法连接到服务地址"),
     ).toBeVisible();
+    expect(failedTranslationRequests).toHaveLength(4);
   } finally {
     await context.close();
     await pageServer.close();
@@ -267,10 +301,17 @@ test("目标 LLM 服务的翻译 POST 断流时显示网络失败而不是 CORS"
   }
 });
 
-test("批次响应格式无效时显示明确原因", async () => {
+test("批次响应格式无效后自动重试并恢复译文", async () => {
   const fakeServer = await startFakeOpenAiServer({
     pageHtml: "<main><p>Invalid response source.</p></main>",
-    responseBody: { status: "not-an-openai-response" },
+    responseSequence: [
+      { responseBody: { status: "not-an-openai-response" } },
+      {
+        responseBody: translationCompletion([
+          { id: "block-0", text: "Recovered after invalid response." },
+        ]),
+      },
+    ],
   });
   const { context, extensionId, optionsPage } = await launchExtension({
     hostPermissions: ["http://127.0.0.1/*"],
@@ -284,10 +325,12 @@ test("批次响应格式无效时显示明确原因", async () => {
     await triggerCurrentPageTranslation(context, extensionId, page);
 
     await expect(
-      page
-        .getByRole("region", { name: "翻译进度" })
-        .getByText("批次 1：响应格式错误：服务未返回有效译文"),
+      page.getByText("Recovered after invalid response.", { exact: true }),
     ).toBeVisible();
+    await expect(
+      page.getByRole("region", { name: "翻译进度" }),
+    ).toHaveCount(0);
+    expect(fakeServer.receivedRequests).toHaveLength(2);
   } finally {
     await context.close();
     await fakeServer.close();
@@ -311,7 +354,7 @@ test("没有 LLM 配置时批次显示失败而不是完成", async () => {
     const progress = page.getByRole("region", { name: "翻译进度" });
     await expect(
       progress.getByText("批次 1：配置失败：请先添加 LLM 配置"),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 500 });
     await expect(progress.getByText("批次 1：已完成")).toHaveCount(0);
     await expect(
       progress.getByRole("button", { name: "重试批次 1" }),
@@ -322,7 +365,7 @@ test("没有 LLM 配置时批次显示失败而不是完成", async () => {
   }
 });
 
-test("用户只手动重试失败批次且扩展默认不自动重试", async () => {
+test("限流失败自动重试三次后保留失败提示和单次手动重试", async () => {
   const paragraphs = Array.from(
     { length: 11 },
     (_, index) => `<p>Retry source ${index + 1}</p>`,
@@ -338,7 +381,7 @@ test("用户只手动重试失败批次且扩展默认不自动重试", async ()
           })),
         ),
       },
-      { statusCode: 429 },
+      ...Array.from({ length: 5 }, () => ({ statusCode: 429 })),
       {
         delayMs: 250,
         responseBody: translationCompletion([
@@ -356,6 +399,7 @@ test("用户只手动重试失败批次且扩展默认不自动重试", async ()
     const page = await context.newPage();
     await page.goto(fakeServer.pageUrl);
 
+    const automaticRetryStartedAt = Date.now();
     await triggerCurrentPageTranslation(context, extensionId, page);
 
     const progress = page.getByRole("region", { name: "翻译进度" });
@@ -377,12 +421,24 @@ test("用户只手动重试失败批次且扩展默认不自动重试", async ()
       page.getByText("Recovered translation 11", { exact: true }),
     ).toHaveCount(0);
 
-    await page.waitForTimeout(500);
-    expect(fakeServer.receivedRequests).toHaveLength(2);
+    await expect
+      .poll(() => fakeServer.receivedRequests.length)
+      .toBe(5);
+    const automaticRetryElapsedMs = Date.now() - automaticRetryStartedAt;
+    expect(automaticRetryElapsedMs).toBeGreaterThanOrEqual(650);
+    expect(automaticRetryElapsedMs).toBeLessThan(5_000);
 
     await retryButton.click();
 
-    await expect(progress).toContainText("正在翻译：已完成 1/2 批次");
+    await expect
+      .poll(() => fakeServer.receivedRequests.length)
+      .toBe(6);
+    await expect(
+      progress.getByText("批次 2：请求受限：请稍后手动重试"),
+    ).toBeVisible();
+
+    await progress.getByRole("button", { name: "重试批次 2" }).click();
+
     await expect(progress).toHaveCount(0);
     await expect(
       page.getByText("Recovered translation 11", { exact: true }),
@@ -390,9 +446,9 @@ test("用户只手动重试失败批次且扩展默认不自动重试", async ()
     await expect(
       page.getByText("Completed translation 1", { exact: true }),
     ).toHaveCount(1);
-    expect(fakeServer.receivedRequests).toHaveLength(3);
+    expect(fakeServer.receivedRequests).toHaveLength(7);
     const retriedInput = JSON.parse(
-      requestBody(fakeServer.receivedRequests[2]).messages.at(-1)?.content ??
+      requestBody(fakeServer.receivedRequests[6]).messages.at(-1)?.content ??
         "{}",
     ) as { blocks?: unknown };
     expect(retriedInput.blocks).toEqual([
