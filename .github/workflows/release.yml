@@ -1,0 +1,55 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Test, package, and publish
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Validate the tag and release commit
+        run: |
+          node scripts/validate-release.mjs "$GITHUB_REF_NAME"
+          git fetch --no-tags origin master
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/master
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the complete test suite
+        run: npm test
+
+      - name: Build the plugin package
+        run: npm run package
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(node --print "require('./package.json').version")"
+          gh release create "$GITHUB_REF_NAME" \
+            "release/better-immersivetranslate-v${VERSION}.zip" \
+            --generate-notes \
+            --title "$GITHUB_REF_NAME" \
+            --verify-tag

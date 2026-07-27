@@ -15,21 +15,24 @@
 
 ## 安装
 
-当前版本需要以开发者模式加载：
+当前版本通过 GitHub Releases 提供，需要以开发者模式加载：
 
-```bash
-git clone https://github.com/zidanDirk/better-immersivetranslate.git
-cd better-immersivetranslate
-npm install
-npm run build
-```
+1. 打开[最新发行版](https://github.com/zidanDirk/better-immersivetranslate/releases/latest)。
+2. 在 Assets 中下载名为 `better-immersivetranslate-vX.Y.Z.zip` 的插件包。不要下载 GitHub 自动生成的 “Source code” 压缩包，它们不是可安装的插件包。
+3. 创建一个以后不再移动的固定目录，并把插件包内容解压到该目录。解压后 `manifest.json` 应直接位于目录根部。
+4. 打开 `chrome://extensions`。
+5. 开启右上角的“开发者模式”。
+6. 点击“加载已解压的扩展程序”，选择刚才的固定目录。
 
-随后在 Chrome 中完成以下操作：
+### 手动升级
 
-1. 打开 `chrome://extensions`。
-2. 开启右上角的“开发者模式”。
-3. 点击“加载已解压的扩展程序”。
-4. 选择项目中的 `dist` 目录。
+GitHub 分发的开发者模式扩展不会自动更新。升级时：
+
+1. 从[发行版页面](https://github.com/zidanDirk/better-immersivetranslate/releases)下载新的插件包。
+2. 保留原来的固定目录，在其中清除旧插件文件，再将新插件包内容解压到同一目录。
+3. 回到 `chrome://extensions`，在本扩展卡片上点击“重新加载”。
+
+不要改变扩展目录路径或改为选择新的版本目录；当前发行版尚未设置固定扩展 ID，路径变化可能让 Chrome 将其识别为另一个扩展，导致原有本地配置不可见。
 
 ## 配置
 
@@ -66,8 +69,14 @@ npm run build
 ## 开发
 
 ```bash
+# 安装依赖
+npm install
+
 # 构建扩展并执行类型检查
 npm run build
+
+# 构建可发布的插件包
+npm run package
 
 # 仅执行类型检查
 npm run typecheck
