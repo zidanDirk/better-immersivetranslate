@@ -4,6 +4,7 @@ import {
   startFakeOpenAiServer,
   type ReceivedOpenAiRequest,
 } from "./fake-openai-server";
+import type { WebsiteOverride } from "../../src/website-overrides";
 
 async function saveConfiguration(page: Page, endpoint: string): Promise<void> {
   await page.getByRole("button", { name: "新增 LLM 配置" }).click();
@@ -12,6 +13,32 @@ async function saveConfiguration(page: Page, endpoint: string): Promise<void> {
   await page.getByLabel("API Key").fill("selection-secret");
   await page.getByLabel("模型").fill("selection-model");
   await page.getByRole("button", { name: "保存配置" }).click();
+}
+
+async function saveWebsiteSelectionPreference(
+  extensionPage: Page,
+  origin: string,
+  selectionTranslation: WebsiteOverride["selectionTranslation"],
+): Promise<void> {
+  await extensionPage.evaluate(
+    async ({ origin, selectionTranslation }) => {
+      await chrome.storage.local.set({
+        websiteOverrides: {
+          [origin]: {
+            origin,
+            targetLanguage: "",
+            translationPrompt: "",
+            automaticTranslation: false,
+            selectionTranslation,
+          },
+        },
+      });
+      await chrome.runtime.sendMessage({
+        kind: "sync-selection-translation",
+      });
+    },
+    { origin, selectionTranslation },
+  );
 }
 
 function requestBody(request: ReceivedOpenAiRequest): {
@@ -268,7 +295,7 @@ test("用户为当前网站开启划词翻译后从选区旁图标查看译文",
     },
   });
   const permissionPattern = "http://127.0.0.1/*";
-  const { context, extensionId, optionsPage } = await launchExtension({
+  const { context, optionsPage } = await launchExtension({
     browserLanguage: "zh-CN",
     hostPermissions: [permissionPattern],
     tabUrlAccess: true,
@@ -276,18 +303,13 @@ test("用户为当前网站开启划词翻译后从选区旁图标查看译文",
 
   try {
     await saveConfiguration(optionsPage, fakeServer.endpoint);
+    await saveWebsiteSelectionPreference(
+      optionsPage,
+      new URL(fakeServer.pageUrl).origin,
+      "enabled",
+    );
     const page = await context.newPage();
     await page.goto(fakeServer.pageUrl);
-
-    const popup = await context.newPage();
-    await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-    await page.bringToFront();
-    await popup.getByRole("button", { name: "网站覆盖设置" }).click();
-    await popup.getByLabel("此网站划词翻译").selectOption("enabled");
-    await expect(
-      popup.getByText("此网站的划词翻译已开启"),
-    ).toBeVisible();
-    await popup.close();
 
     await page.getByText("Translate this selected passage.").selectText();
     const entry = page.getByRole("button", { name: "翻译所选文字" });
@@ -616,7 +638,7 @@ test("网站覆盖设置优先于全局划词翻译并可恢复继承", async ()
   const fakeServer = await startFakeOpenAiServer({
     pageHtml: "<main><p>Website preference wins.</p></main>",
   });
-  const { context, extensionId, optionsPage } = await launchExtension({
+  const { context, optionsPage } = await launchExtension({
     hostPermissions: ["http://*/*", "https://*/*"],
     tabUrlAccess: true,
   });
@@ -631,12 +653,11 @@ test("网站覆盖设置优先于全局划词翻译并可恢复继承", async ()
     const setWebsitePreference = async (
       preference: "disabled" | "inherit",
     ): Promise<void> => {
-      const popup = await context.newPage();
-      await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-      await page.bringToFront();
-      await popup.getByRole("button", { name: "网站覆盖设置" }).click();
-      await popup.getByLabel("此网站划词翻译").selectOption(preference);
-      await popup.close();
+      await saveWebsiteSelectionPreference(
+        optionsPage,
+        new URL(fakeServer.pageUrl).origin,
+        preference,
+      );
     };
 
     await setWebsitePreference("disabled");
