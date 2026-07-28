@@ -5,6 +5,13 @@ import {
   type LlmConfiguration,
 } from "./llm-configuration.js";
 import {
+  findLlmModelPreset,
+  findLlmModelPresetByModel,
+  llmModelPresets,
+  llmModelPresetTierLabel,
+  type LlmModelPreset,
+} from "./llm-model-presets.js";
+import {
   testLlmConnection,
   type ConnectionTestResult,
 } from "./connection-test.js";
@@ -134,18 +141,86 @@ app.innerHTML = `
     </form>
   </section>
   <section aria-live="polite" id="configuration-list" class="configuration-list"></section>
-  <form id="configuration-form" class="configuration-form" hidden>
-    <h2 id="form-title">新增 LLM 配置</h2>
+  <form id="configuration-form" class="configuration-form" novalidate hidden>
+    <div class="configuration-form-heading">
+      <div>
+        <p class="form-eyebrow">请求路径</p>
+        <h2 id="form-title">新增 LLM 配置</h2>
+        <p>选择常用模型即可生成一套可编辑的 OpenAI 兼容配置。</p>
+      </div>
+      <div class="route-preview" aria-live="polite">
+        <span id="route-provider">尚未选择模型</span>
+        <span aria-hidden="true">→</span>
+        <code id="route-host">等待服务地址</code>
+      </div>
+    </div>
     <div class="form-grid">
-      <label>名称<input name="name" autocomplete="off" required /></label>
-      <label>服务地址<input name="endpoint" type="url" placeholder="https://api.example.com/v1" required /></label>
-      <label>API Key<input name="apiKey" type="password" autocomplete="new-password" required /></label>
-      <label>模型<input name="model" autocomplete="off" required /></label>
-      <label class="wide">请求参数<textarea name="requestParameters" rows="4">{}</textarea></label>
-      <label class="wide">自定义请求头<textarea name="customHeaders" rows="4">{}</textarea></label>
+      <label>
+        <span>名称</span>
+        <input name="name" autocomplete="off" required aria-describedby="name-error" />
+        <small class="field-error" id="name-error"></small>
+      </label>
+      <div class="model-field">
+        <label for="model-input">模型</label>
+        <div class="model-combobox">
+          <input
+            id="model-input"
+            name="model"
+            autocomplete="off"
+            placeholder="请选择或输入模型"
+            role="combobox"
+            aria-autocomplete="list"
+            aria-controls="model-options"
+            aria-expanded="false"
+            aria-describedby="model-hint model-error"
+            required
+          />
+          <button id="model-toggle" type="button" aria-label="展开选项" aria-controls="model-options" tabindex="-1">⌄</button>
+          <div id="model-options" class="model-options" role="listbox" hidden></div>
+        </div>
+        <small class="field-hint" id="model-hint">从预设选择会自动填写地址和请求参数；直接输入始终作为自定义模型。</small>
+        <small class="field-error" id="model-error"></small>
+      </div>
+      <label>
+        <span>API Key</span>
+        <input name="apiKey" type="password" autocomplete="new-password" required aria-describedby="api-key-error" />
+        <small class="field-error" id="api-key-error"></small>
+      </label>
+      <label>
+        <span>服务地址</span>
+        <input name="endpoint" type="url" placeholder="https://api.example.com/v1" required aria-describedby="endpoint-hint endpoint-error" />
+        <small class="field-hint" id="endpoint-hint">填写基础地址，插件会请求其 /chat/completions 路径。</small>
+        <small class="field-error" id="endpoint-error"></small>
+      </label>
+      <details class="advanced-settings wide" open>
+        <summary>
+          <span>
+            <strong>高级设置</strong>
+            <small>请求参数与自定义请求头</small>
+          </span>
+          <span class="customized-badge" id="advanced-customized" hidden>已自定义</span>
+        </summary>
+        <div class="advanced-fields">
+          <label>
+            <span>请求参数</span>
+            <textarea name="requestParameters" rows="5" aria-describedby="request-parameters-error">{}</textarea>
+            <small class="field-error" id="request-parameters-error"></small>
+          </label>
+          <label>
+            <span>自定义请求头</span>
+            <textarea name="customHeaders" rows="5" aria-describedby="custom-headers-error">{}</textarea>
+            <small class="field-error" id="custom-headers-error"></small>
+          </label>
+        </div>
+      </details>
+    </div>
+    <div class="preset-actions">
+      <button class="text-action" id="restore-preset" type="button" hidden>恢复预设默认值</button>
+      <p id="form-connection-status" aria-live="polite"></p>
     </div>
     <div class="form-actions">
       <button class="secondary" id="cancel-configuration" type="button">取消</button>
+      <button class="secondary" id="test-configuration" type="button">测试连接</button>
       <button class="primary" type="submit">保存配置</button>
     </div>
   </form>
@@ -210,6 +285,34 @@ const addTerminologyRuleButton = requireElement<HTMLButtonElement>(
 const cancelTerminologyRuleButton = requireElement<HTMLButtonElement>(
   "#cancel-terminology-rule",
 );
+const configurationNameField = requireElement<HTMLInputElement>(
+  '[name="name"]',
+);
+const modelField = requireElement<HTMLInputElement>("#model-input");
+const modelToggle = requireElement<HTMLButtonElement>("#model-toggle");
+const modelOptions = requireElement<HTMLElement>("#model-options");
+const endpointField = requireElement<HTMLInputElement>('[name="endpoint"]');
+const endpointHint = requireElement<HTMLElement>("#endpoint-hint");
+const apiKeyField = requireElement<HTMLInputElement>('[name="apiKey"]');
+const requestParametersField = requireElement<HTMLTextAreaElement>(
+  '[name="requestParameters"]',
+);
+const customHeadersField = requireElement<HTMLTextAreaElement>(
+  '[name="customHeaders"]',
+);
+const advancedSettings =
+  requireElement<HTMLDetailsElement>(".advanced-settings");
+const advancedCustomized =
+  requireElement<HTMLElement>("#advanced-customized");
+const restorePresetButton =
+  requireElement<HTMLButtonElement>("#restore-preset");
+const testConfigurationButton =
+  requireElement<HTMLButtonElement>("#test-configuration");
+const formConnectionStatus = requireElement<HTMLElement>(
+  "#form-connection-status",
+);
+const routeProvider = requireElement<HTMLElement>("#route-provider");
+const routeHost = requireElement<HTMLElement>("#route-host");
 let editingConfigurationId: string | null = null;
 let editingTerminologyRuleId: string | null = null;
 let savedGlobalSelectionTranslationEnabled = false;
@@ -230,11 +333,401 @@ function renderTranslationDiagnosticsStatus(
     ? `最近一次日志已保存：${new Date(status.at).toLocaleString()}`
     : `最近一次日志未保存：${status.message}`;
 }
+let selectedPresetId: string | null = null;
+let nameWasEdited = false;
 
-function parseObject<T extends Record<string, unknown>>(
-  value: FormDataEntryValue | null,
-): T {
-  return JSON.parse(String(value ?? "{}")) as T;
+const configurationFieldErrors = new Map<
+  HTMLInputElement | HTMLTextAreaElement,
+  HTMLElement
+>([
+  [configurationNameField, requireElement("#name-error")],
+  [modelField, requireElement("#model-error")],
+  [apiKeyField, requireElement("#api-key-error")],
+  [endpointField, requireElement("#endpoint-error")],
+  [requestParametersField, requireElement("#request-parameters-error")],
+  [customHeadersField, requireElement("#custom-headers-error")],
+]);
+
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(canonicalize);
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, child]) => [key, canonicalize(child)]),
+    );
+  }
+  return value;
+}
+
+function sameJsonValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(canonicalize(left)) === JSON.stringify(canonicalize(right));
+}
+
+function parseJsonObject(
+  value: string,
+): { value: Record<string, unknown> } | { error: string } {
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      Array.isArray(parsed)
+    ) {
+      return { error: "请输入 JSON 对象，例如 {}。" };
+    }
+    return { value: parsed as Record<string, unknown> };
+  } catch {
+    return { error: "JSON 格式不正确，请检查括号、引号和逗号。" };
+  }
+}
+
+function formatJson(value: Record<string, unknown>): string {
+  return JSON.stringify(value, null, 2);
+}
+
+function presetForConfiguration(
+  configuration: LlmConfiguration,
+): LlmModelPreset | undefined {
+  if (configuration.modelPresetId === null) {
+    return undefined;
+  }
+  if (configuration.modelPresetId !== undefined) {
+    return findLlmModelPreset(configuration.modelPresetId);
+  }
+  return findLlmModelPresetByModel(configuration.model);
+}
+
+function currentPreset(): LlmModelPreset | undefined {
+  return findLlmModelPreset(selectedPresetId);
+}
+
+function requestParametersValue(): Record<string, unknown> | undefined {
+  const result = parseJsonObject(requestParametersField.value);
+  return "value" in result ? result.value : undefined;
+}
+
+function isCurrentPresetCustomized(): boolean {
+  const preset = currentPreset();
+  if (!preset) {
+    return false;
+  }
+  const requestParameters = requestParametersValue();
+  return (
+    endpointField.value.trim() !== preset.endpoint ||
+    !requestParameters ||
+    !sameJsonValue(requestParameters, preset.requestParameters)
+  );
+}
+
+function isConfigurationPresetCustomized(
+  configuration: LlmConfiguration,
+  preset: LlmModelPreset,
+): boolean {
+  return (
+    configuration.endpoint.trim() !== preset.endpoint ||
+    !sameJsonValue(
+      configuration.requestParameters,
+      preset.requestParameters,
+    )
+  );
+}
+
+function setFieldError(
+  field: HTMLInputElement | HTMLTextAreaElement,
+  message: string,
+): void {
+  const error = configurationFieldErrors.get(field);
+  if (!error) return;
+  error.textContent = message;
+  field.setAttribute("aria-invalid", message ? "true" : "false");
+}
+
+function clearConfigurationErrors(): void {
+  for (const [field] of configurationFieldErrors) {
+    setFieldError(field, "");
+  }
+}
+
+function updateRoutePreview(): void {
+  const preset = currentPreset();
+  routeProvider.textContent = preset
+    ? `${preset.provider} · ${preset.displayName}`
+    : modelField.value.trim() || "尚未选择模型";
+  try {
+    routeHost.textContent = endpointField.value.trim()
+      ? new URL(endpointField.value.trim()).host
+      : "等待服务地址";
+  } catch {
+    routeHost.textContent = endpointField.value.trim() || "等待服务地址";
+  }
+}
+
+function updatePresetState(): void {
+  const preset = currentPreset();
+  const customized = Boolean(preset && isCurrentPresetCustomized());
+  advancedCustomized.hidden = !customized;
+  restorePresetButton.hidden = !customized;
+  endpointHint.textContent =
+    preset?.endpointHint ??
+    "填写基础地址，插件会请求其 /chat/completions 路径。";
+  updateRoutePreview();
+}
+
+function closeModelOptions(): void {
+  modelOptions.hidden = true;
+  modelField.setAttribute("aria-expanded", "false");
+  modelToggle.setAttribute("aria-label", "展开选项");
+}
+
+function focusModelOption(
+  current: HTMLButtonElement,
+  direction: 1 | -1,
+): void {
+  const options = Array.from(
+    modelOptions.querySelectorAll<HTMLButtonElement>('[role="option"]'),
+  );
+  const index = options.indexOf(current);
+  const nextIndex = (index + direction + options.length) % options.length;
+  options[nextIndex]?.focus();
+}
+
+function shouldConfirmPresetReplacement(): boolean {
+  const endpoint = endpointField.value.trim();
+  const requestParameters = requestParametersValue();
+  if (!endpoint && requestParameters && sameJsonValue(requestParameters, {})) {
+    return false;
+  }
+  const preset = currentPreset();
+  if (preset) {
+    return isCurrentPresetCustomized();
+  }
+  return Boolean(endpoint) || Boolean(
+    requestParameters && !sameJsonValue(requestParameters, {}),
+  );
+}
+
+function applyPreset(preset: LlmModelPreset, force = false): boolean {
+  if (
+    !force &&
+    selectedPresetId !== preset.id &&
+    shouldConfirmPresetReplacement() &&
+    !window.confirm(
+      "应用新的模型预设将覆盖当前服务地址和请求参数。是否继续？",
+    )
+  ) {
+    return false;
+  }
+
+  selectedPresetId = preset.id;
+  modelField.value = preset.model;
+  endpointField.value = preset.endpoint;
+  requestParametersField.value = formatJson(preset.requestParameters);
+  if (!nameWasEdited && !configurationNameField.value.trim()) {
+    configurationNameField.value = `${preset.provider} · ${preset.displayName}`;
+  }
+  clearConfigurationErrors();
+  formConnectionStatus.textContent = "";
+  updatePresetState();
+  closeModelOptions();
+  return true;
+}
+
+function selectCustomModel(): void {
+  selectedPresetId = null;
+  formConnectionStatus.textContent = "";
+  updatePresetState();
+  closeModelOptions();
+  modelField.focus();
+  modelField.select();
+}
+
+function renderModelOptions(query = ""): void {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const filteredPresets = llmModelPresets.filter((preset) =>
+    [
+      preset.provider,
+      preset.displayName,
+      preset.model,
+      llmModelPresetTierLabel(preset.tier),
+    ].some((value) => value.toLocaleLowerCase().includes(normalizedQuery)),
+  );
+
+  const fragment = document.createDocumentFragment();
+  const providers = [...new Set(filteredPresets.map(({ provider }) => provider))];
+  for (const provider of providers) {
+    const group = document.createElement("section");
+    group.className = "model-option-group";
+    const heading = document.createElement("p");
+    heading.className = "model-option-group-title";
+    heading.textContent = provider;
+    group.append(heading);
+
+    for (const preset of filteredPresets.filter(
+      (candidate) => candidate.provider === provider,
+    )) {
+      const option = document.createElement("button");
+      option.className = "model-option";
+      option.type = "button";
+      option.role = "option";
+      option.dataset.presetId = preset.id;
+      option.setAttribute(
+        "aria-selected",
+        String(selectedPresetId === preset.id),
+      );
+      option.innerHTML = `
+        <span>
+          <strong>${preset.displayName}</strong>
+          <code>${preset.model}</code>
+        </span>
+        <small>${llmModelPresetTierLabel(preset.tier)}</small>
+      `;
+      option.addEventListener("click", () => {
+        applyPreset(preset);
+      });
+      option.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault();
+          focusModelOption(option, event.key === "ArrowDown" ? 1 : -1);
+        }
+        if (event.key === "Escape") {
+          closeModelOptions();
+          modelField.focus();
+        }
+      });
+      group.append(option);
+    }
+    fragment.append(group);
+  }
+
+  if (filteredPresets.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "model-options-empty";
+    empty.textContent = "没有匹配的模型预设";
+    fragment.append(empty);
+  }
+
+  const customOption = document.createElement("button");
+  customOption.className = "model-option custom-model-option";
+  customOption.type = "button";
+  customOption.role = "option";
+  customOption.setAttribute("aria-selected", String(selectedPresetId === null));
+  customOption.innerHTML = `
+    <span>
+      <strong>自定义模型</strong>
+      <code>保留当前地址与参数</code>
+    </span>
+    <small>自由输入</small>
+  `;
+  customOption.addEventListener("click", selectCustomModel);
+  customOption.addEventListener("keydown", (event) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      focusModelOption(customOption, event.key === "ArrowDown" ? 1 : -1);
+    }
+    if (event.key === "Escape") {
+      closeModelOptions();
+      modelField.focus();
+    }
+  });
+  fragment.append(customOption);
+
+  modelOptions.replaceChildren(fragment);
+}
+
+function openModelOptions(query = ""): void {
+  renderModelOptions(query);
+  modelOptions.hidden = false;
+  modelField.setAttribute("aria-expanded", "true");
+  modelToggle.setAttribute("aria-label", "收起选项");
+}
+
+function configurationFromForm(): LlmConfiguration | null {
+  clearConfigurationErrors();
+  const errors: Array<{
+    field: HTMLInputElement | HTMLTextAreaElement;
+    message: string;
+  }> = [];
+  const name = configurationNameField.value.trim();
+  const model = modelField.value.trim();
+  const endpoint = endpointField.value.trim();
+  const apiKey = apiKeyField.value;
+
+  if (!name) errors.push({ field: configurationNameField, message: "请输入配置名称。" });
+  if (!model) errors.push({ field: modelField, message: "请选择或输入模型。" });
+  if (!apiKey.trim()) errors.push({ field: apiKeyField, message: "请输入 API Key。" });
+
+  try {
+    const url = new URL(endpoint);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new Error("unsupported protocol");
+    }
+    if (endpoint.includes("YOUR-WORKSPACE-ID")) {
+      errors.push({
+        field: endpointField,
+        message: "请先将 YOUR-WORKSPACE-ID 替换为百炼业务空间 ID。",
+      });
+    }
+  } catch {
+    errors.push({
+      field: endpointField,
+      message: endpoint
+        ? "请输入有效的 HTTP(S) 服务地址。"
+        : "请输入服务地址。",
+    });
+  }
+
+  const requestParameters = parseJsonObject(requestParametersField.value);
+  if ("error" in requestParameters) {
+    errors.push({
+      field: requestParametersField,
+      message: requestParameters.error,
+    });
+  }
+  const customHeaders = parseJsonObject(customHeadersField.value);
+  if ("error" in customHeaders) {
+    errors.push({ field: customHeadersField, message: customHeaders.error });
+  } else if (
+    Object.values(customHeaders.value).some(
+      (value) => typeof value !== "string",
+    )
+  ) {
+    errors.push({
+      field: customHeadersField,
+      message: "自定义请求头的每个值都必须是字符串。",
+    });
+  }
+
+  for (const { field, message } of errors) {
+    setFieldError(field, message);
+  }
+  if (errors.length > 0) {
+    const firstField = errors[0]!.field;
+    if (
+      firstField === requestParametersField ||
+      firstField === customHeadersField
+    ) {
+      advancedSettings.open = true;
+    }
+    firstField.focus();
+    return null;
+  }
+
+  if (!("value" in requestParameters) || !("value" in customHeaders)) {
+    return null;
+  }
+  return {
+    id: editingConfigurationId ?? crypto.randomUUID(),
+    name,
+    endpoint,
+    apiKey,
+    model,
+    modelPresetId: selectedPresetId,
+    requestParameters: requestParameters.value,
+    customHeaders: customHeaders.value as Record<string, string>,
+  };
 }
 
 async function renderConfigurations(): Promise<void> {
@@ -255,10 +748,39 @@ async function renderConfigurations(): Promise<void> {
       const article = document.createElement("article");
       article.className = "configuration-card";
 
+      const preset = presetForConfiguration(configuration);
+      const cardHeader = document.createElement("div");
+      cardHeader.className = "configuration-card-header";
       const title = document.createElement("h2");
       title.textContent = configuration.name;
-      const model = document.createElement("p");
-      model.textContent = configuration.model;
+      const badges = document.createElement("div");
+      badges.className = "configuration-badges";
+      const providerBadge = document.createElement("span");
+      providerBadge.textContent = preset?.provider ?? "自定义模型";
+      badges.append(providerBadge);
+      if (preset && isConfigurationPresetCustomized(configuration, preset)) {
+        const customizedBadge = document.createElement("span");
+        customizedBadge.className = "customized-badge";
+        customizedBadge.textContent = "已自定义";
+        badges.append(customizedBadge);
+      }
+      cardHeader.append(title, badges);
+
+      const modelDetails = document.createElement("div");
+      modelDetails.className = "configuration-model";
+      const modelName = document.createElement("p");
+      modelName.textContent = preset?.displayName ?? "自定义模型";
+      const modelId = document.createElement("code");
+      modelId.textContent = configuration.model;
+      modelDetails.append(modelName, modelId);
+
+      const endpointHost = document.createElement("p");
+      endpointHost.className = "configuration-endpoint";
+      try {
+        endpointHost.textContent = new URL(configuration.endpoint).host;
+      } catch {
+        endpointHost.textContent = configuration.endpoint;
+      }
       const actions = document.createElement("div");
       actions.className = "card-actions";
       const connectionStatus = document.createElement("p");
@@ -305,7 +827,13 @@ async function renderConfigurations(): Promise<void> {
       });
       actions.append(testButton, editButton, deleteButton);
 
-      article.append(title, model, connectionStatus, actions);
+      article.append(
+        cardHeader,
+        modelDetails,
+        endpointHost,
+        connectionStatus,
+        actions,
+      );
       return article;
     }),
   );
@@ -409,23 +937,47 @@ function setFieldValue(name: string, value: string): void {
 function openForm(configuration?: LlmConfiguration): void {
   editingConfigurationId = configuration?.id ?? null;
   form.reset();
+  clearConfigurationErrors();
+  formConnectionStatus.textContent = "";
+  advancedSettings.open = true;
+  nameWasEdited = Boolean(configuration);
+  selectedPresetId = null;
   formTitle.textContent = configuration ? "编辑 LLM 配置" : "新增 LLM 配置";
 
   if (configuration) {
+    selectedPresetId = presetForConfiguration(configuration)?.id ?? null;
     setFieldValue("name", configuration.name);
     setFieldValue("endpoint", configuration.endpoint);
     setFieldValue("apiKey", configuration.apiKey);
     setFieldValue("model", configuration.model);
     setFieldValue(
       "requestParameters",
-      JSON.stringify(configuration.requestParameters),
+      formatJson(configuration.requestParameters),
     );
-    setFieldValue("customHeaders", JSON.stringify(configuration.customHeaders));
+    setFieldValue(
+      "customHeaders",
+      formatJson(configuration.customHeaders),
+    );
   }
 
+  updatePresetState();
+  closeModelOptions();
   form.hidden = false;
   addButton.hidden = true;
-  form.querySelector<HTMLInputElement>('[name="name"]')?.focus();
+  configurationNameField.focus();
+  form.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function closeConfigurationForm(): void {
+  editingConfigurationId = null;
+  selectedPresetId = null;
+  nameWasEdited = false;
+  form.reset();
+  clearConfigurationErrors();
+  formConnectionStatus.textContent = "";
+  closeModelOptions();
+  form.hidden = true;
+  addButton.hidden = false;
 }
 
 addButton.addEventListener("click", () => {
@@ -433,10 +985,92 @@ addButton.addEventListener("click", () => {
 });
 
 cancelButton.addEventListener("click", () => {
-  editingConfigurationId = null;
-  form.reset();
-  form.hidden = true;
-  addButton.hidden = false;
+  closeConfigurationForm();
+});
+
+configurationNameField.addEventListener("input", () => {
+  nameWasEdited = true;
+});
+
+modelField.addEventListener("focus", () => {
+  openModelOptions("");
+});
+
+modelField.addEventListener("input", () => {
+  selectedPresetId = null;
+  formConnectionStatus.textContent = "";
+  updatePresetState();
+  openModelOptions(modelField.value);
+});
+
+modelField.addEventListener("keydown", (event) => {
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    openModelOptions(modelOptions.hidden ? "" : modelField.value);
+    modelOptions
+      .querySelector<HTMLButtonElement>('[role="option"]')
+      ?.focus();
+  }
+  if (event.key === "Escape") {
+    closeModelOptions();
+  }
+});
+
+modelToggle.addEventListener("click", () => {
+  if (modelOptions.hidden) {
+    openModelOptions("");
+    modelField.focus();
+    return;
+  }
+  modelField.focus();
+  closeModelOptions();
+});
+
+document.addEventListener("click", (event) => {
+  const target = event.target;
+  if (
+    target instanceof Node &&
+    !modelOptions.contains(target) &&
+    !modelField.contains(target) &&
+    !modelToggle.contains(target)
+  ) {
+    closeModelOptions();
+  }
+});
+
+for (const [field] of configurationFieldErrors) {
+  field.addEventListener("input", () => {
+    setFieldError(field, "");
+  });
+}
+
+endpointField.addEventListener("input", updatePresetState);
+requestParametersField.addEventListener("input", updatePresetState);
+
+restorePresetButton.addEventListener("click", () => {
+  const preset = currentPreset();
+  if (preset) {
+    applyPreset(preset, true);
+  }
+});
+
+testConfigurationButton.addEventListener("click", () => {
+  const configuration = configurationFromForm();
+  if (!configuration) return;
+
+  runUiTask(async () => {
+    testConfigurationButton.disabled = true;
+    formConnectionStatus.textContent = "正在测试连接…";
+    try {
+      const result = await testLlmConnection(configuration);
+      formConnectionStatus.textContent = describeConnectionResult(result);
+    } finally {
+      testConfigurationButton.disabled = false;
+    }
+  }, () => {
+    testConfigurationButton.disabled = false;
+    formConnectionStatus.textContent = "连接测试失败，请重试";
+  });
 });
 
 clearCacheButton.addEventListener("click", () => {
@@ -660,29 +1294,16 @@ terminologyForm.addEventListener("submit", (event) => {
 
 form.addEventListener("submit", (event) => {
   event.preventDefault();
-  runUiTask(async () => {
-    const data = new FormData(form);
-    const configuration: LlmConfiguration = {
-      id: editingConfigurationId ?? crypto.randomUUID(),
-      name: String(data.get("name")),
-      endpoint: String(data.get("endpoint")),
-      apiKey: String(data.get("apiKey")),
-      model: String(data.get("model")),
-      requestParameters: parseObject(data.get("requestParameters")),
-      customHeaders: parseObject<Record<string, string>>(
-        data.get("customHeaders"),
-      ),
-    };
+  const configuration = configurationFromForm();
+  if (!configuration) return;
 
+  runUiTask(async () => {
     await saveLlmConfiguration(configuration);
-    editingConfigurationId = null;
-    form.reset();
-    form.hidden = true;
-    addButton.hidden = false;
+    closeConfigurationForm();
+    optionsStatus.textContent = "LLM 配置已保存";
     await renderConfigurations();
   }, () => {
-    optionsStatus.textContent =
-      "LLM 配置保存失败，请检查 JSON 格式后重试";
+    optionsStatus.textContent = "LLM 配置保存失败，请重试";
   });
 });
 

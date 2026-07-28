@@ -31,6 +31,185 @@ async function saveConfiguration(
   await page.getByRole("button", { name: "保存配置" }).click();
 }
 
+async function selectModelPreset(page: Page, name: RegExp): Promise<void> {
+  await page.getByLabel("模型").click();
+  await page.getByRole("option", { name }).click();
+}
+
+test("选择模型预设会自动填写名称、服务地址和请求参数", async () => {
+  const { context, optionsPage } = await launchExtension();
+
+  try {
+    await optionsPage.getByRole("button", { name: "新增 LLM 配置" }).click();
+
+    await expect(optionsPage.getByLabel("模型")).toHaveValue("");
+    await expect(optionsPage.getByLabel("服务地址")).toHaveValue("");
+    await expect(optionsPage.getByLabel("请求参数")).toHaveValue("{}");
+
+    await optionsPage.getByLabel("模型").fill("terra");
+    await expect(
+      optionsPage.getByRole("option", { name: /GPT-5\.6 Luna/ }),
+    ).toHaveCount(0);
+    await optionsPage
+      .getByRole("option", { name: /GPT-5\.6 Terra/ })
+      .click();
+
+    await expect(optionsPage.getByLabel("名称")).toHaveValue(
+      "OpenAI · GPT-5.6 Terra",
+    );
+    await expect(optionsPage.getByLabel("模型")).toHaveValue(
+      "gpt-5.6-terra",
+    );
+    await expect(optionsPage.getByLabel("服务地址")).toHaveValue(
+      "https://api.openai.com/v1",
+    );
+    await expect(optionsPage.getByLabel("请求参数")).toHaveValue(
+      '{\n  "response_format": {\n    "type": "json_object"\n  }\n}',
+    );
+    await expect(optionsPage.getByText("api.openai.com")).toBeVisible();
+  } finally {
+    await context.close();
+  }
+});
+
+test("手动输入与预设相同的模型 ID 仍按自定义模型处理", async () => {
+  const { context, optionsPage } = await launchExtension();
+
+  try {
+    await optionsPage.getByRole("button", { name: "新增 LLM 配置" }).click();
+    await optionsPage.getByLabel("模型").fill("gpt-5.6-terra");
+
+    await expect(optionsPage.getByLabel("服务地址")).toHaveValue("");
+    await expect(optionsPage.getByLabel("请求参数")).toHaveValue("{}");
+    await expect(optionsPage.getByLabel("名称")).toHaveValue("");
+  } finally {
+    await context.close();
+  }
+});
+
+test("切换预设前确认是否覆盖用户自定义值", async () => {
+  const { context, optionsPage } = await launchExtension();
+
+  try {
+    await optionsPage.getByRole("button", { name: "新增 LLM 配置" }).click();
+    await selectModelPreset(optionsPage, /GPT-5\.6 Terra/);
+    await optionsPage
+      .getByLabel("服务地址")
+      .fill("https://proxy.example.com/v1");
+
+    optionsPage.once("dialog", (dialog) => dialog.dismiss());
+    await selectModelPreset(optionsPage, /DeepSeek V4 Flash/);
+
+    await expect(optionsPage.getByLabel("模型")).toHaveValue(
+      "gpt-5.6-terra",
+    );
+    await expect(optionsPage.getByLabel("服务地址")).toHaveValue(
+      "https://proxy.example.com/v1",
+    );
+
+    optionsPage.once("dialog", (dialog) => dialog.accept());
+    await selectModelPreset(optionsPage, /DeepSeek V4 Flash/);
+
+    await expect(optionsPage.getByLabel("模型")).toHaveValue(
+      "deepseek-v4-flash",
+    );
+    await expect(optionsPage.getByLabel("服务地址")).toHaveValue(
+      "https://api.deepseek.com",
+    );
+  } finally {
+    await context.close();
+  }
+});
+
+test("编辑预设配置时保留自定义值并可恢复默认值", async () => {
+  const { context, optionsPage } = await launchExtension();
+
+  try {
+    await optionsPage.getByRole("button", { name: "新增 LLM 配置" }).click();
+    await selectModelPreset(optionsPage, /GPT-5\.6 Luna/);
+    await optionsPage.getByLabel("API Key").fill("local-secret");
+    await optionsPage
+      .getByLabel("服务地址")
+      .fill("https://proxy.example.com/v1");
+    await optionsPage
+      .getByLabel("请求参数")
+      .fill('{"response_format":{"type":"json_object"},"top_p":0.8}');
+    const configurationForm = optionsPage.locator("#configuration-form");
+    await expect(configurationForm.getByText("已自定义")).toBeVisible();
+    await optionsPage.getByRole("button", { name: "保存配置" }).click();
+
+    const configurationList = optionsPage.locator("#configuration-list");
+    await expect(
+      configurationList.getByText("proxy.example.com"),
+    ).toBeVisible();
+    await expect(configurationList.getByText("已自定义")).toBeVisible();
+    await optionsPage
+      .getByRole("button", { name: "编辑 OpenAI · GPT-5.6 Luna" })
+      .click();
+
+    await expect(optionsPage.getByLabel("服务地址")).toHaveValue(
+      "https://proxy.example.com/v1",
+    );
+    await optionsPage
+      .getByRole("button", { name: "恢复预设默认值" })
+      .click();
+
+    await expect(optionsPage.getByLabel("服务地址")).toHaveValue(
+      "https://api.openai.com/v1",
+    );
+    await expect(configurationForm.getByText("已自定义")).toBeHidden();
+  } finally {
+    await context.close();
+  }
+});
+
+test("表单可在保存前测试连接并显示字段级错误", async () => {
+  const fakeServer = await startFakeOpenAiServer();
+  const { context, optionsPage } = await launchExtension();
+
+  try {
+    await optionsPage.getByRole("button", { name: "新增 LLM 配置" }).click();
+    await optionsPage.getByRole("button", { name: "测试连接" }).click();
+    await expect(optionsPage.getByText("请输入配置名称。")).toBeVisible();
+    await expect(optionsPage.getByText("请选择或输入模型。")).toBeVisible();
+    await expect(optionsPage.getByText("请输入 API Key。")).toBeVisible();
+    await expect(optionsPage.getByText("请输入服务地址。")).toBeVisible();
+
+    await optionsPage.getByLabel("名称").fill("保存前测试");
+    await optionsPage.getByLabel("模型").fill("fake-model");
+    await optionsPage.getByLabel("API Key").fill("local-secret");
+    await optionsPage.getByLabel("服务地址").fill(fakeServer.endpoint);
+    await optionsPage.getByRole("button", { name: "测试连接" }).click();
+
+    await expect(optionsPage.getByText("连接成功")).toBeVisible();
+    await expect(optionsPage.getByText("还没有 LLM 配置")).toBeVisible();
+    const received = await fakeServer.receivedRequest;
+    expect(received.body).toMatchObject({ model: "fake-model" });
+  } finally {
+    await context.close();
+    await fakeServer.close();
+  }
+});
+
+test("Qwen 预设要求用户替换 Workspace ID", async () => {
+  const { context, optionsPage } = await launchExtension();
+
+  try {
+    await optionsPage.getByRole("button", { name: "新增 LLM 配置" }).click();
+    await selectModelPreset(optionsPage, /Qwen 3\.7 Plus/);
+    await optionsPage.getByLabel("API Key").fill("local-secret");
+    await optionsPage.getByRole("button", { name: "保存配置" }).click();
+
+    await expect(
+      optionsPage.getByText(
+        "请先将 YOUR-WORKSPACE-ID 替换为百炼业务空间 ID。",
+      ),
+    ).toBeVisible();
+  } finally {
+    await context.close();
+  }
+});
+
 test("用户新增的 LLM 配置在设置页面重新打开后仍然存在", async () => {
   const { context, optionsPage } = await launchExtension();
 

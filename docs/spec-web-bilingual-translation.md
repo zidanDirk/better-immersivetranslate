@@ -14,6 +14,7 @@
 2. As a Chrome user, I want to enter my own API Key, so that I do not need to purchase credits or join a membership.
 3. As a Chrome user, I want to choose a model, so that I can balance quality, speed and cost.
 4. As a Chrome user, I want to configure request parameters and optional headers, so that different OpenAI-compatible providers work correctly.
+4a. As a Chrome user, I want common model presets to fill the official endpoint and suitable request parameters while remaining editable, so that I can configure a provider quickly without losing support for proxies or new models.
 5. As a Chrome user, I want to test my LLM configuration, so that I know it works before translating a page.
 6. As a Chrome user, I want my API Key stored only locally, so that the extension does not upload it to an operator-owned server.
 7. As a Chrome user, I want to click the extension button to translate the current page, so that translation does not consume API quota unexpectedly.
@@ -45,6 +46,7 @@
 - Keep the popup settings navigation focused on one top-level `LLM 配置` entry that opens the settings page directly. Do not expose the website override form in the popup; previously stored website overrides remain intact and continue to affect translation behavior.
 - Use the project's canonical terms: translation task, semantic text block, bilingual comparison, website override, LLM configuration, BYOK, incremental translation and translation cache.
 - Support OpenAI-compatible HTTP APIs with endpoint, API Key, model, request parameters and optional custom headers.
+- Offer a release-bundled, searchable list of common provider-and-model presets. Applying a preset fills its official endpoint and JSON-output request parameters, but endpoint, model and parameters remain editable; direct model input is always treated as custom and existing configurations are never rewritten during upgrade.
 - Call providers directly from the browser. Store configuration and API Key in Chrome local storage; do not add an operator-owned proxy or account service. This follows ADR 0001.
 - Treat the API Key as locally accessible rather than absolutely secret. Explain this boundary in settings.
 - Trigger current-page translation from an explicit user action by default. Website automatic translation is opt-in.

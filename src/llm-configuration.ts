@@ -4,6 +4,7 @@ export interface LlmConfiguration {
   endpoint: string;
   apiKey: string;
   model: string;
+  modelPresetId?: string | null;
   requestParameters: Record<string, unknown>;
   customHeaders: Record<string, string>;
 }
