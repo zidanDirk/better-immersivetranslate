@@ -62,12 +62,12 @@ app.innerHTML = `
   <section class="global-preferences" aria-labelledby="global-preferences-title">
     <form id="global-target-language-form">
       <h2 id="global-preferences-title">全局翻译偏好</h2>
-      <p>未设置时使用浏览器语言；网站覆盖设置可以为单个网站指定其他目标语言。</p>
+      <p>未设置时使用浏览器语言。</p>
       <label class="selection-preference">
         <input name="globalSelectionTranslation" type="checkbox" />
         <span>
           <strong>在所有网站启用划词翻译</strong>
-          <small>开启时会请求全部普通网站访问权限；敏感网站仍可单独关闭。</small>
+          <small>开启时会请求全部普通网站访问权限。</small>
         </span>
       </label>
       <label>

@@ -42,6 +42,7 @@
 ## Implementation Decisions
 
 - Build a Chrome Manifest V3 extension with a settings surface, popup/action surface, background coordination, and page content translation surface.
+- Keep the popup settings navigation focused on one top-level `LLM 配置` entry that opens the settings page directly. Do not expose the website override form in the popup; previously stored website overrides remain intact and continue to affect translation behavior.
 - Use the project's canonical terms: translation task, semantic text block, bilingual comparison, website override, LLM configuration, BYOK, incremental translation and translation cache.
 - Support OpenAI-compatible HTTP APIs with endpoint, API Key, model, request parameters and optional custom headers.
 - Call providers directly from the browser. Store configuration and API Key in Chrome local storage; do not add an operator-owned proxy or account service. This follows ADR 0001.

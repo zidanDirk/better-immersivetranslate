@@ -40,55 +40,24 @@ test("弹窗以可读的宽度展示主操作和阅读方式", async () => {
   }
 });
 
-test("展开网站覆盖设置后仍可操作", async () => {
-  const fakeServer = await startFakeOpenAiServer();
-  const { context, extensionId } = await launchExtension({
-    hostPermissions: ["http://127.0.0.1/*"],
-  });
-
-  try {
-    const activePage = await context.newPage();
-    await activePage.goto(fakeServer.pageUrl);
-
-    const popup = await context.newPage();
-    await popup.setViewportSize({ width: 360, height: 600 });
-    await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-    await activePage.bringToFront();
-    await popup.getByRole("button", { name: "网站覆盖设置" }).click();
-
-    await expect(popup.getByRole("heading", { name: "网站覆盖设置" })).toBeVisible();
-    const form = popup.locator("#website-override-form");
-    await expect(form).toHaveCSS("overflow-y", "auto");
-    await popup.getByLabel("网站目标语言").fill("ja");
-    await expect(
-      popup.getByRole("button", { name: "保存网站覆盖设置" }),
-    ).toBeVisible();
-    await popup.getByRole("button", { name: "保存网站覆盖设置" }).click();
-    await expect(popup.getByText("网站覆盖设置已保存")).toBeVisible();
-  } finally {
-    await context.close();
-    await fakeServer.close();
-  }
-});
-
-test("用户可以从网站覆盖设置打开 LLM 配置页", async () => {
-  const fakeServer = await startFakeOpenAiServer();
-  const { context, extensionId, optionsPage } = await launchExtension({
-    hostPermissions: ["http://127.0.0.1/*"],
-  });
+test("弹窗只保留 LLM 配置一级入口并可打开配置页", async () => {
+  const { context, extensionId, optionsPage } = await launchExtension();
 
   try {
     await optionsPage.close();
-    const activePage = await context.newPage();
-    await activePage.goto(fakeServer.pageUrl);
-
     const popup = await context.newPage();
     await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-    await activePage.bringToFront();
-    await popup.getByRole("button", { name: "网站覆盖设置" }).click();
+
+    await expect(
+      popup.getByRole("button", { name: "网站覆盖设置" }),
+    ).toHaveCount(0);
+    const llmConfigurationEntry = popup.getByRole("button", {
+      name: "LLM 配置",
+    });
+    await expect(llmConfigurationEntry).toBeVisible();
 
     const openedPagePromise = context.waitForEvent("page");
-    await popup.getByRole("button", { name: "配置 LLM 信息" }).click();
+    await llmConfigurationEntry.click();
     const openedPage = await openedPagePromise;
 
     await expect(openedPage).toHaveURL(
@@ -99,7 +68,6 @@ test("用户可以从网站覆盖设置打开 LLM 配置页", async () => {
     ).toBeVisible();
   } finally {
     await context.close();
-    await fakeServer.close();
   }
 });
 
@@ -139,20 +107,13 @@ test("弹窗命令失败时保持打开并显示可重试状态", async () => {
 });
 
 test("打开设置的 Chrome API 同步抛错时显示状态而不产生未捕获异常", async () => {
-  const fakeServer = await startFakeOpenAiServer();
-  const { context, extensionId } = await launchExtension({
-    hostPermissions: ["http://127.0.0.1/*"],
-  });
+  const { context, extensionId } = await launchExtension();
 
   try {
-    const activePage = await context.newPage();
-    await activePage.goto(fakeServer.pageUrl);
     const popup = await context.newPage();
     await popup.goto(`chrome-extension://${extensionId}/popup.html`);
     const popupErrors: string[] = [];
     popup.on("pageerror", (error) => popupErrors.push(error.message));
-    await activePage.bringToFront();
-    await popup.getByRole("button", { name: "网站覆盖设置" }).click();
     await popup.evaluate(() => {
       Object.defineProperty(chrome.runtime, "openOptionsPage", {
         value: () => {
@@ -161,12 +122,11 @@ test("打开设置的 Chrome API 同步抛错时显示状态而不产生未捕�
       });
     });
 
-    await popup.getByRole("button", { name: "配置 LLM 信息" }).click();
+    await popup.getByRole("button", { name: "LLM 配置" }).click();
 
     await expect(popup.getByText("设置页打开失败，请重试")).toBeVisible();
     expect(popupErrors).toEqual([]);
   } finally {
     await context.close();
-    await fakeServer.close();
   }
 });

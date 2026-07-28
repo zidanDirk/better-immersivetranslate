@@ -30,45 +30,11 @@
         </button>
         <button type="button" data-reading-mode="original-only">仅原文</button>
       </fieldset>
-      <button id="open-website-override" type="button"><span>网站覆盖设置</span><span aria-hidden="true">›</span></button>
+      <button id="open-llm-configuration" type="button">
+        <span>LLM 配置</span><span aria-hidden="true">›</span>
+      </button>
       <p id="popup-status" aria-live="polite"></p>
     </main>
-    <form id="website-override-form" hidden>
-      <h2>网站覆盖设置</h2>
-      <p id="website-origin"></p>
-      <label>
-        网站目标语言
-        <input name="websiteTargetLanguage" autocomplete="off" placeholder="留空时使用全局设置" />
-      </label>
-      <label>
-        网站翻译提示词
-        <textarea name="websiteTranslationPrompt" rows="4" placeholder="留空时使用全局翻译提示词"></textarea>
-      </label>
-      <label>
-        <input name="automaticTranslation" type="checkbox" />
-        网站自动翻译
-      </label>
-      <label>
-        此网站划词翻译
-        <select name="selectionTranslation">
-          <option value="inherit">使用全局设置</option>
-          <option value="enabled">开启</option>
-          <option value="disabled">关闭</option>
-        </select>
-      </label>
-      <p id="website-permission-request"></p>
-      <div class="llm-configuration-entry">
-        <div>
-          <h3>LLM 配置</h3>
-          <p>管理服务地址、API Key、模型和请求参数。</p>
-        </div>
-        <button id="open-llm-configuration" type="button">
-          配置 LLM 信息 <span aria-hidden="true">›</span>
-        </button>
-      </div>
-      <p id="website-override-status" aria-live="polite"></p>
-      <button type="submit">保存网站覆盖设置</button>
-    </form>
     <script type="module" src="popup.js"></script>
   </body>
 </html>
