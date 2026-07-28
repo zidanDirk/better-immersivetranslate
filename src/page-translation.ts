@@ -10,8 +10,8 @@ export interface Translation {
 }
 
 export type TranslationBatchFailureKind = "authentication" | "configuration" | "cors" | "network" | "rate-limit" | "response-format" | "timeout";
-export interface RetryTranslationBatch { blocks: SemanticTextBlock[]; targetLanguage: string; }
-export type TranslationBatchProgress = { status: "waiting" | "processing" | "complete" } | { status: "failed"; failureKind: TranslationBatchFailureKind; retryBatch: RetryTranslationBatch };
+export interface RetryTranslationBatch { blocks: SemanticTextBlock[]; diagnosticTaskId?: string; targetLanguage: string; }
+export type TranslationBatchProgress = { status: "waiting" | "processing" | "complete" } | { status: "failed"; diagnosticsLogFailed?: boolean; failureKind: TranslationBatchFailureKind; retryBatch: RetryTranslationBatch };
 
 export function initializeTranslationProgress(batchCount: number): void {
   document.querySelector("[data-better-immersive-progress]")?.remove();
@@ -128,6 +128,11 @@ export function updateTranslationBatchProgress(batchIndex: number, progress: Tra
       timeout: "请求超时：请手动重试",
     };
     batch.textContent = `批次 ${batchIndex + 1}：${labels[progress.failureKind]}`;
+    if (progress.diagnosticsLogFailed) {
+      const diagnosticsFailure = document.createElement("span");
+      diagnosticsFailure.textContent = "；诊断日志未保存";
+      batch.append(diagnosticsFailure);
+    }
     const retry = document.createElement("button");
     retry.type = "button";
     retry.textContent = `重试批次 ${batchIndex + 1}`;
@@ -147,6 +152,7 @@ export function updateTranslationBatchProgress(batchIndex: number, progress: Tra
           kind: "retry-translation-batch",
           batchIndex,
           blocks: progress.retryBatch.blocks,
+          diagnosticTaskId: progress.retryBatch.diagnosticTaskId,
           targetLanguage: progress.retryBatch.targetLanguage,
         })
         .then(

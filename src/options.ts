@@ -18,6 +18,11 @@ import {
   loadGlobalTranslationPreferences,
   saveGlobalTranslationPreferences,
 } from "./translation-preferences.js";
+import {
+  loadTranslationDiagnosticsEnabled,
+  loadTranslationDiagnosticsStatus,
+  saveTranslationDiagnosticsEnabled,
+} from "./translation-diagnostics.js";
 import { runUiTask } from "./ui-task.js";
 
 function requireElement<T extends Element>(selector: string): T {
@@ -51,6 +56,21 @@ app.innerHTML = `
       <p>浏览器扩展环境无法绝对隐藏 API Key，请只在可信设备上使用。</p>
     </div>
   </aside>
+  <section class="translation-diagnostics" aria-labelledby="translation-diagnostics-title">
+    <div>
+      <h2 id="translation-diagnostics-title">翻译诊断日志</h2>
+      <p>最终失败批次的日志可能包含网页原文和模型原始响应，不包含 API Key；无痕窗口不会保存。</p>
+      <p>保存位置：<code id="translation-diagnostics-directory">系统下载目录/better-immersivetranslate/logs/</code></p>
+      <p id="translation-diagnostics-status" class="diagnostics-status" aria-live="polite"></p>
+    </div>
+    <div class="diagnostics-actions">
+      <label class="diagnostics-toggle">
+        <input id="translation-diagnostics-enabled" type="checkbox" />
+        <span>保存翻译诊断日志</span>
+      </label>
+      <button class="secondary" id="show-translation-diagnostics" type="button" hidden>在文件夹中显示</button>
+    </div>
+  </section>
   <section class="cache-management" aria-labelledby="cache-title">
     <div>
       <h2 id="cache-title">翻译缓存</h2>
@@ -143,6 +163,14 @@ const clearCacheButton = requireElement<HTMLButtonElement>(
   "#clear-translation-cache",
 );
 const cacheStatus = requireElement<HTMLElement>("#cache-status");
+const translationDiagnosticsEnabled =
+  requireElement<HTMLInputElement>("#translation-diagnostics-enabled");
+const translationDiagnosticsStatus =
+  requireElement<HTMLElement>("#translation-diagnostics-status");
+const translationDiagnosticsDirectory =
+  requireElement<HTMLElement>("#translation-diagnostics-directory");
+const showTranslationDiagnosticsButton =
+  requireElement<HTMLButtonElement>("#show-translation-diagnostics");
 const globalTargetLanguageForm = requireElement<HTMLFormElement>(
   "#global-target-language-form",
 );
@@ -185,6 +213,23 @@ const cancelTerminologyRuleButton = requireElement<HTMLButtonElement>(
 let editingConfigurationId: string | null = null;
 let editingTerminologyRuleId: string | null = null;
 let savedGlobalSelectionTranslationEnabled = false;
+let latestTranslationDiagnosticsDownloadId: number | undefined;
+
+function renderTranslationDiagnosticsStatus(
+  status: Awaited<ReturnType<typeof loadTranslationDiagnosticsStatus>>,
+): void {
+  if (!status) return;
+  if (status.directory) {
+    translationDiagnosticsDirectory.textContent = status.directory;
+  }
+  if (status.downloadId !== undefined) {
+    latestTranslationDiagnosticsDownloadId = status.downloadId;
+    showTranslationDiagnosticsButton.hidden = false;
+  }
+  translationDiagnosticsStatus.textContent = status.kind === "saved"
+    ? `最近一次日志已保存：${new Date(status.at).toLocaleString()}`
+    : `最近一次日志未保存：${status.message}`;
+}
 
 function parseObject<T extends Record<string, unknown>>(
   value: FormDataEntryValue | null,
@@ -409,6 +454,92 @@ clearCacheButton.addEventListener("click", () => {
   });
 });
 
+translationDiagnosticsEnabled.addEventListener("change", () => {
+  const requestedEnabled = translationDiagnosticsEnabled.checked;
+  runUiTask(async () => {
+    translationDiagnosticsEnabled.disabled = true;
+    try {
+      if (requestedEnabled) {
+        const alreadyGranted = await chrome.permissions.contains({
+          permissions: ["downloads"],
+        });
+        const granted = alreadyGranted ||
+          await chrome.permissions.request({
+            permissions: ["downloads"],
+          });
+        if (!granted) {
+          translationDiagnosticsEnabled.checked = false;
+          translationDiagnosticsStatus.textContent =
+            "下载权限被拒绝，翻译诊断日志未开启";
+          return;
+        }
+        try {
+          await saveTranslationDiagnosticsEnabled(true);
+        } catch (error) {
+          if (!alreadyGranted) {
+            await chrome.permissions.remove({
+              permissions: ["downloads"],
+            });
+          }
+          throw error;
+        }
+        translationDiagnosticsStatus.textContent = "翻译诊断日志已开启";
+        return;
+      }
+      await saveTranslationDiagnosticsEnabled(false);
+      const removed = await chrome.permissions.remove({
+        permissions: ["downloads"],
+      });
+      translationDiagnosticsStatus.textContent = removed
+        ? "翻译诊断日志已关闭，下载权限已撤销"
+        : "翻译诊断日志已关闭";
+    } finally {
+      translationDiagnosticsEnabled.disabled = false;
+    }
+  }, () => {
+    translationDiagnosticsEnabled.disabled = false;
+    translationDiagnosticsEnabled.checked = !requestedEnabled;
+    translationDiagnosticsStatus.textContent =
+      "翻译诊断日志设置失败，请重试";
+  });
+});
+
+showTranslationDiagnosticsButton.addEventListener("click", () => {
+  runUiTask(async () => {
+    if (latestTranslationDiagnosticsDownloadId === undefined) return;
+    const permitted = await chrome.permissions.contains({
+      permissions: ["downloads"],
+    });
+    if (
+      !permitted &&
+      !(await chrome.permissions.request({ permissions: ["downloads"] }))
+    ) {
+      translationDiagnosticsStatus.textContent =
+        "下载权限被拒绝，无法在文件夹中显示日志";
+      return;
+    }
+    await chrome.downloads.show(latestTranslationDiagnosticsDownloadId);
+  }, () => {
+    translationDiagnosticsStatus.textContent =
+      "无法在文件夹中显示最近的翻译诊断日志";
+  });
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (
+    areaName !== "local" ||
+    !("translationDiagnosticsStatus" in changes)
+  ) {
+    return;
+  }
+  void loadTranslationDiagnosticsStatus()
+    .then(renderTranslationDiagnosticsStatus)
+    .catch(() => {
+      translationDiagnosticsStatus.textContent =
+        "翻译诊断日志状态更新失败，请重新打开设置页";
+    });
+});
+
 globalTargetLanguageForm.addEventListener("submit", (event) => {
   event.preventDefault();
   runUiTask(async () => {
@@ -565,6 +696,19 @@ runUiTask(async () => {
     globalTranslationPreferences.selectionTranslationEnabled;
   savedGlobalSelectionTranslationEnabled =
     globalTranslationPreferences.selectionTranslationEnabled;
+  const diagnosticsEnabled = await loadTranslationDiagnosticsEnabled();
+  const diagnosticsPermission = await chrome.permissions.contains({
+    permissions: ["downloads"],
+  });
+  translationDiagnosticsEnabled.checked =
+    diagnosticsEnabled && diagnosticsPermission;
+  if (diagnosticsEnabled && !diagnosticsPermission) {
+    await saveTranslationDiagnosticsEnabled(false);
+    translationDiagnosticsStatus.textContent =
+      "下载权限已被撤销，翻译诊断日志已关闭";
+  }
+  const diagnosticsStatus = await loadTranslationDiagnosticsStatus();
+  renderTranslationDiagnosticsStatus(diagnosticsStatus);
   await renderTerminologyRules();
   await renderConfigurations();
 }, () => {

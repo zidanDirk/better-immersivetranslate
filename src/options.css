@@ -142,7 +142,8 @@ h1 {
 }
 
 .translation-instructions,
-.global-preferences {
+.global-preferences,
+.translation-diagnostics {
   position: relative;
   overflow: hidden;
   background: rgb(255 255 255 / 88%);
@@ -153,13 +154,15 @@ h1 {
 }
 
 .translation-instructions h2,
-.global-preferences h2 {
+.global-preferences h2,
+.translation-diagnostics h2 {
   font-size: 1.1rem;
   margin-bottom: 0.35rem;
 }
 
 .translation-instructions::before,
-.global-preferences::before {
+.global-preferences::before,
+.translation-diagnostics::before {
   position: absolute;
   top: 0;
   left: 0;
@@ -170,8 +173,50 @@ h1 {
 }
 
 .translation-instructions p,
-.global-preferences p {
+.global-preferences p,
+.translation-diagnostics p {
   color: #667068;
+}
+
+.translation-diagnostics {
+  align-items: center;
+  display: flex;
+  gap: 2rem;
+  justify-content: space-between;
+}
+
+.translation-diagnostics code {
+  overflow-wrap: anywhere;
+}
+
+.translation-diagnostics .diagnostics-status {
+  color: #265bbd;
+  margin-bottom: 0;
+  min-height: 1.25rem;
+}
+
+.diagnostics-toggle {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  grid-template-columns: auto 1fr;
+}
+
+.diagnostics-toggle input {
+  height: 1.1rem;
+  width: 1.1rem;
+}
+
+.diagnostics-actions {
+  align-items: stretch;
+  display: flex;
+  flex: 0 0 auto;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.diagnostics-actions button[hidden] {
+  display: none;
 }
 
 .instruction-actions {
@@ -414,6 +459,11 @@ textarea:focus {
   }
 
   .cache-management {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .translation-diagnostics {
     align-items: stretch;
     flex-direction: column;
   }
