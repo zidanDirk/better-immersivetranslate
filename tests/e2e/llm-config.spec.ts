@@ -517,7 +517,7 @@ test("划词翻译同步失败时回滚界面和已保存设置", async () => {
       "在所有网站启用划词翻译",
     );
 
-    await selectionTranslation.check();
+    await selectionTranslation.click();
 
     await expect(selectionTranslation).not.toBeChecked();
     await expect(
