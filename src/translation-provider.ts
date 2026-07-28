@@ -16,16 +16,18 @@ import {
   loadTranslationInstructions,
   type TranslationInstructions,
 } from "./translation-instructions.js";
+import {
+  createTranslationAttemptDiagnostic,
+  type TranslationAttemptDiagnostic,
+} from "./translation-diagnostics.js";
 
 export type TranslationBatchResult =
   | { kind: "complete"; translations: Translation[] }
-  | { kind: "failed"; failureKind: TranslationBatchFailureKind };
-
-function failed(
-  failureKind: TranslationBatchFailureKind,
-): TranslationBatchResult {
-  return { kind: "failed", failureKind };
-}
+  | {
+      kind: "failed";
+      failureKind: TranslationBatchFailureKind;
+      diagnostic?: TranslationAttemptDiagnostic;
+    };
 
 function isTranslation(value: unknown): value is Translation {
   return (
@@ -78,10 +80,25 @@ export async function translateSemanticTextBatch(
   blocks: SemanticTextBlock[],
   targetLanguage: string,
   suppliedInstructions?: TranslationInstructions,
+  captureDiagnostics = false,
 ): Promise<TranslationBatchResult> {
+  const startedAt = new Date().toISOString();
+  const startedAtMilliseconds = performance.now();
   const [configuration] = await loadLlmConfigurations();
   if (!configuration) {
-    return failed("configuration");
+    return {
+      kind: "failed",
+      failureKind: "configuration",
+      ...(captureDiagnostics
+        ? {
+            diagnostic: await createTranslationAttemptDiagnostic({
+              durationMs: performance.now() - startedAtMilliseconds,
+              failureKind: "configuration",
+              startedAt,
+            }),
+          }
+        : {}),
+    };
   }
   const instructions =
     suppliedInstructions ?? (await loadTranslationInstructions());
@@ -97,7 +114,7 @@ export async function translateSemanticTextBatch(
     return { kind: "complete", translations: cachedTranslations };
   }
 
-  const request = await requestOpenAiChatCompletion(configuration, {
+  const requestBody = {
     ...configuration.requestParameters,
     model: configuration.model,
     messages: [
@@ -114,6 +131,29 @@ export async function translateSemanticTextBatch(
         }),
       },
     ],
+  };
+  const request = await requestOpenAiChatCompletion(
+    configuration,
+    requestBody,
+  );
+  const failed = async (
+    failureKind: TranslationBatchFailureKind,
+    response?: Response,
+  ): Promise<TranslationBatchResult> => ({
+    kind: "failed",
+    failureKind,
+    ...(captureDiagnostics
+      ? {
+          diagnostic: await createTranslationAttemptDiagnostic({
+            configuration,
+            durationMs: performance.now() - startedAtMilliseconds,
+            failureKind,
+            requestBody,
+            response,
+            startedAt,
+          }),
+        }
+      : {}),
   });
   if (request.kind === "invalid-configuration") {
     return failed("configuration");
@@ -126,24 +166,27 @@ export async function translateSemanticTextBatch(
   }
 
   const { response } = request;
+  const diagnosticResponse = captureDiagnostics
+    ? response.clone()
+    : undefined;
   if (response.status === 401 || response.status === 403) {
-    return failed("authentication");
+    return failed("authentication", diagnosticResponse);
   }
   if (response.status === 429) {
-    return failed("rate-limit");
+    return failed("rate-limit", diagnosticResponse);
   }
   if (!response.ok) {
-    return failed("response-format");
+    return failed("response-format", diagnosticResponse);
   }
 
   let completion: unknown;
   try {
     completion = await response.json();
   } catch {
-    return failed("response-format");
+    return failed("response-format", diagnosticResponse);
   }
   const translations = readTranslations(completion, uncachedBlocks);
-  if (!translations) return failed("response-format");
+  if (!translations) return failed("response-format", diagnosticResponse);
   await storeTranslations(uncachedBlocks, translations, cacheContext);
   return { kind: "complete", translations: [...cachedTranslations, ...translations] };
 }

@@ -11,6 +11,7 @@ import path from "node:path";
 export async function launchExtension(options?: {
   browserLanguage?: string;
   hostPermissions?: string[];
+  requiredPermissions?: string[];
   tabUrlAccess?: boolean;
 }): Promise<{
   context: BrowserContext;
@@ -20,7 +21,11 @@ export async function launchExtension(options?: {
 }> {
   let extensionPath = path.resolve("dist");
   let temporaryExtensionPath: string | undefined;
-  if (options?.hostPermissions || options?.tabUrlAccess) {
+  if (
+    options?.hostPermissions ||
+    options?.requiredPermissions ||
+    options?.tabUrlAccess
+  ) {
     temporaryExtensionPath = await mkdtemp(
       path.join(tmpdir(), "better-immersivetranslate-e2e-"),
     );
@@ -32,6 +37,19 @@ export async function launchExtension(options?: {
     >;
     if (options.hostPermissions) {
       manifest.host_permissions = options.hostPermissions;
+    }
+    if (options.requiredPermissions) {
+      manifest.permissions = [
+        ...new Set([
+          ...((manifest.permissions as string[]) ?? []),
+          ...options.requiredPermissions,
+        ]),
+      ];
+      manifest.optional_permissions = (
+        (manifest.optional_permissions as string[]) ?? []
+      ).filter(
+        (permission) => !options.requiredPermissions?.includes(permission),
+      );
     }
     if (options.tabUrlAccess) {
       manifest.permissions = [

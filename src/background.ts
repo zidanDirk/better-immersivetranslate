@@ -26,6 +26,13 @@ import {
   websiteAccess,
 } from "./website-overrides.js";
 import type { TranslationInstructions } from "./translation-instructions.js";
+import {
+  loadTranslationDiagnosticsEnabled,
+  saveFailedTranslationBatchDiagnostic,
+  type TranslationAttemptDiagnostic,
+  type TranslationDiagnosticSource,
+  type TranslationDiagnosticTaskContext,
+} from "./translation-diagnostics.js";
 
 const selectionMenuId = "translate-selected-text";
 const translationBatchSize = 10;
@@ -40,6 +47,7 @@ async function prioritizedTranslationRequest(
   targetLanguage: string,
   instructions: TranslationInstructions,
   priority: "normal" | "selection",
+  captureDiagnostics = false,
 ): Promise<TranslationBatchResult> {
   if (activeProviderRequestCount >= maximumConcurrentTranslationBatches) {
     await new Promise<void>((resolve) => {
@@ -68,6 +76,7 @@ async function prioritizedTranslationRequest(
       blocks,
       targetLanguage,
       instructions,
+      captureDiagnostics,
     );
   } finally {
     release();
@@ -141,15 +150,24 @@ async function runTranslationBatch(
   batchIndex: number,
   retryBatch: RetryTranslationBatch,
   instructions: TranslationInstructions,
+  diagnosticTask: TranslationDiagnosticTaskContext,
   maximumAutomaticRetryCount = 3,
 ): Promise<boolean> {
   await chrome.scripting.executeScript({ target: { tabId }, func: updateTranslationBatchProgress, args: [batchIndex, { status: "processing" }] });
+  const captureDiagnostics =
+    !diagnosticTask.incognito &&
+    await loadTranslationDiagnosticsEnabled();
   let result = await prioritizedTranslationRequest(
     retryBatch.blocks,
     retryBatch.targetLanguage,
     instructions,
     "normal",
+    captureDiagnostics,
   );
+  const attempts: TranslationAttemptDiagnostic[] =
+    result.kind === "failed" && result.diagnostic
+      ? [result.diagnostic]
+      : [];
   for (
     let retryIndex = 0;
     retryIndex < maximumAutomaticRetryCount &&
@@ -168,10 +186,22 @@ async function runTranslationBatch(
       retryBatch.targetLanguage,
       instructions,
       "normal",
+      captureDiagnostics,
     );
+    if (result.kind === "failed" && result.diagnostic) {
+      attempts.push(result.diagnostic);
+    }
   }
   if (result.kind === "failed") {
-    await chrome.scripting.executeScript({ target: { tabId }, func: updateTranslationBatchProgress, args: [batchIndex, { status: "failed", failureKind: result.failureKind, retryBatch }] });
+    const diagnosticSave = await saveFailedTranslationBatchDiagnostic({
+      attempts,
+      batchIndex,
+      blocks: retryBatch.blocks,
+      failureKind: result.failureKind,
+      targetLanguage: retryBatch.targetLanguage,
+      task: diagnosticTask,
+    });
+    await chrome.scripting.executeScript({ target: { tabId }, func: updateTranslationBatchProgress, args: [batchIndex, { status: "failed", diagnosticsLogFailed: diagnosticSave.kind === "failed", failureKind: result.failureKind, retryBatch }] });
     return false;
   }
   await chrome.scripting.executeScript({ target: { tabId }, func: insertBilingualTranslations, args: [result.translations, retryBatch.targetLanguage, retryBatch.blocks] });
@@ -200,9 +230,24 @@ async function translateBlocks(
   blocks: SemanticTextBlock[],
   targetLanguage: string,
   instructions: TranslationInstructions,
+  source: TranslationDiagnosticSource,
 ): Promise<number> {
   if (blocks.length === 0) return 0;
   const batches = Array.from({ length: Math.ceil(blocks.length / translationBatchSize) }, (_, index) => blocks.slice(index * translationBatchSize, (index + 1) * translationBatchSize));
+  const tab = await chrome.tabs.get(tabId);
+  const diagnosticTask: TranslationDiagnosticTaskContext = {
+    id: crypto.randomUUID(),
+    incognito: tab.incognito,
+    ...(tab.url
+      ? {
+          page: {
+            title: tab.title ?? "",
+            url: tab.url,
+          },
+        }
+      : {}),
+    source,
+  };
   await chrome.scripting.executeScript({ target: { tabId }, func: initializeTranslationProgress, args: [batches.length] });
   let failureCount = 0;
   let nextBatchIndex = 0;
@@ -214,7 +259,7 @@ async function translateBlocks(
         nextBatchIndex += 1;
         const batch = batches[batchIndex];
         if (!batch) continue;
-        if (!(await runTranslationBatch(tabId, batchIndex, { blocks: batch, targetLanguage }, instructions))) {
+        if (!(await runTranslationBatch(tabId, batchIndex, { blocks: batch, diagnosticTaskId: diagnosticTask.id, targetLanguage }, instructions, diagnosticTask))) {
           failureCount += 1;
         }
       }
@@ -254,9 +299,13 @@ function scheduleIncrementalTranslation(tabId: number): Promise<void> {
     state.pendingIncrementalBlocks = new Map();
     const tab = await chrome.tabs.get(tabId);
     const preferences = await resolveTranslationPreferences(tab.url);
-    state.failedBatchCount = await translateBlocks(tabId, [
-      ...pending.values(),
-    ], preferences.targetLanguage, preferences.instructions);
+    state.failedBatchCount = await translateBlocks(
+      tabId,
+      [...pending.values()],
+      preferences.targetLanguage,
+      preferences.instructions,
+      "incremental",
+    );
   });
   state.scheduledIncrementalTranslation = current;
   const scheduleLatestPendingBlocks = (): void => {
@@ -274,7 +323,10 @@ function scheduleIncrementalTranslation(tabId: number): Promise<void> {
   return current;
 }
 
-async function translateCurrentPage(tabId: number): Promise<void> {
+async function translateCurrentPage(
+  tabId: number,
+  source: "automatic-page" | "manual-page",
+): Promise<void> {
   const state = translationState(tabId);
   state.pendingIncrementalBlocks.clear();
   state.failedBatchCount = 0;
@@ -287,6 +339,7 @@ async function translateCurrentPage(tabId: number): Promise<void> {
     blocks,
     preferences.targetLanguage,
     preferences.instructions,
+    source,
   );
 }
 
@@ -435,7 +488,9 @@ async function automaticallyTranslateCompletedPage(
     origins: [access.permissionPattern],
   });
   if (!permitted) return;
-  await enqueueTranslation(tabId, () => translateCurrentPage(tabId));
+  await enqueueTranslation(tabId, () =>
+    translateCurrentPage(tabId, "automatic-page")
+  );
 }
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
@@ -497,7 +552,9 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
   }
   if (isRecord(message) && message.kind === "translate-current-page" && typeof message.tabId === "number") {
     const tabId = message.tabId;
-    void enqueueTranslation(tabId, () => translateCurrentPage(tabId)).then(
+    void enqueueTranslation(tabId, () =>
+      translateCurrentPage(tabId, "manual-page")
+    ).then(
       () => safelySendResponse(sendResponse, { kind: "complete" }),
       () => safelySendResponse(sendResponse, { kind: "failed" }),
     );
@@ -519,10 +576,27 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
     const blocks = message.blocks;
     const targetLanguage = message.targetLanguage;
     void enqueueTranslation(tabId, async () => {
+      const tab = await chrome.tabs.get(tabId);
+      const diagnosticTask: TranslationDiagnosticTaskContext = {
+        id: crypto.randomUUID(),
+        incognito: tab.incognito,
+        ...(tab.url
+          ? {
+              page: {
+                title: tab.title ?? "",
+                url: tab.url,
+              },
+            }
+          : {}),
+        ...(typeof message.diagnosticTaskId === "string"
+          ? { relatedTaskId: message.diagnosticTaskId }
+          : {}),
+        source: "manual-retry",
+      };
       const recovered = await runTranslationBatch(tabId, batchIndex, {
         blocks,
         targetLanguage,
-      }, (await resolveTranslationPreferences(sender.tab?.url)).instructions, 0);
+      }, (await resolveTranslationPreferences(sender.tab?.url)).instructions, diagnosticTask, 0);
       if (recovered) {
         const state = translationState(tabId);
         state.failedBatchCount = Math.max(0, state.failedBatchCount - 1);
