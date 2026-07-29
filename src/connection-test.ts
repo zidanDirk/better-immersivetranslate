@@ -3,6 +3,7 @@ import {
   chatCompletionsUrl,
   createLlmRequestHeaders,
   effectiveRequestParameters,
+  llmResponseTimeoutMilliseconds,
 } from "./llm-request.js";
 
 export type ConnectionTestResult =
@@ -87,7 +88,7 @@ export async function testLlmConnection(
           },
         ],
       }),
-      signal: AbortSignal.timeout(5_000),
+      signal: AbortSignal.timeout(llmResponseTimeoutMilliseconds),
     });
   } catch {
     return (await canReachChatCompletions(url))

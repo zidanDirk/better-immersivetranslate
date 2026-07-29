@@ -183,7 +183,10 @@ export async function translateSemanticTextBatch(
   try {
     completion = await response.json();
   } catch {
-    return failed("response-format", diagnosticResponse);
+    return failed(
+      request.timeoutSignal.aborted ? "timeout" : "response-format",
+      diagnosticResponse,
+    );
   }
   const translations = readTranslations(completion, uncachedBlocks);
   if (!translations) return failed("response-format", diagnosticResponse);

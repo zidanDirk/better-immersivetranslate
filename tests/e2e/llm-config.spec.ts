@@ -72,6 +72,25 @@ test("选择模型预设会自动填写名称、服务地址和请求参数", as
   }
 });
 
+test("DeepSeek V4 模型预设默认关闭 thinking", async () => {
+  const { context, optionsPage } = await launchExtension();
+
+  try {
+    await optionsPage.getByRole("button", { name: "新增 LLM 配置" }).click();
+    const expectedRequestParameters =
+      '{\n  "response_format": {\n    "type": "json_object"\n  },\n  "thinking": {\n    "type": "disabled"\n  }\n}';
+
+    for (const presetName of [/DeepSeek V4 Pro/, /DeepSeek V4 Flash/]) {
+      await selectModelPreset(optionsPage, presetName);
+      await expect(optionsPage.getByLabel("请求参数")).toHaveValue(
+        expectedRequestParameters,
+      );
+    }
+  } finally {
+    await context.close();
+  }
+});
+
 test("手动输入与预设相同的模型 ID 仍按自定义模型处理", async () => {
   const { context, optionsPage } = await launchExtension();
 
@@ -185,6 +204,35 @@ test("表单可在保存前测试连接并显示字段级错误", async () => {
     await expect(optionsPage.getByText("还没有 LLM 配置")).toBeVisible();
     const received = await fakeServer.receivedRequest;
     expect(received.body).toMatchObject({ model: "fake-model" });
+  } finally {
+    await context.close();
+    await fakeServer.close();
+  }
+});
+
+test("测试连接等待较慢响应正文", async () => {
+  const fakeServer = await startFakeOpenAiServer({
+    bodyDelayMs: 5_500,
+    responseBody: {
+      choices: [{ message: { content: '{"status":"ok"}' } }],
+    },
+  });
+  const { context, optionsPage } = await launchExtension({
+    hostPermissions: ["http://127.0.0.1/*"],
+  });
+
+  try {
+    await optionsPage.getByRole("button", { name: "新增 LLM 配置" }).click();
+    await optionsPage.getByLabel("名称").fill("较慢兼容服务");
+    await optionsPage.getByLabel("模型").fill("slow-compatible-model");
+    await optionsPage.getByLabel("API Key").fill("local-secret");
+    await optionsPage.getByLabel("服务地址").fill(fakeServer.endpoint);
+    await optionsPage.getByRole("button", { name: "测试连接" }).click();
+
+    await expect(optionsPage.getByText("连接成功")).toBeVisible({
+      timeout: 8_000,
+    });
+    expect(fakeServer.receivedRequests).toHaveLength(1);
   } finally {
     await context.close();
     await fakeServer.close();

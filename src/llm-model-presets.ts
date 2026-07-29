@@ -15,8 +15,13 @@ const jsonObjectRequestParameters = {
   response_format: { type: "json_object" },
 } as const;
 
-function jsonObjectParameters(): Record<string, unknown> {
-  return structuredClone(jsonObjectRequestParameters);
+function jsonObjectParameters(
+  additionalParameters: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return structuredClone({
+    ...jsonObjectRequestParameters,
+    ...additionalParameters,
+  });
 }
 
 export const llmModelPresets: readonly LlmModelPreset[] = [
@@ -81,7 +86,9 @@ export const llmModelPresets: readonly LlmModelPreset[] = [
     model: "deepseek-v4-pro",
     tier: "balanced",
     endpoint: "https://api.deepseek.com",
-    requestParameters: jsonObjectParameters(),
+    requestParameters: jsonObjectParameters({
+      thinking: { type: "disabled" },
+    }),
   },
   {
     id: "deepseek-v4-flash",
@@ -90,7 +97,9 @@ export const llmModelPresets: readonly LlmModelPreset[] = [
     model: "deepseek-v4-flash",
     tier: "economy",
     endpoint: "https://api.deepseek.com",
-    requestParameters: jsonObjectParameters(),
+    requestParameters: jsonObjectParameters({
+      thinking: { type: "disabled" },
+    }),
   },
   {
     id: "qwen-3-7-plus",

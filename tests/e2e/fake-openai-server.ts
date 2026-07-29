@@ -7,6 +7,7 @@ export interface ReceivedOpenAiRequest {
 }
 
 export interface FakeOpenAiResponse {
+  bodyDelayMs?: number;
   delayMs?: number;
   responseBody?: unknown;
   statusCode?: number;
@@ -18,6 +19,7 @@ export interface FakeOpenAiRequestTiming {
 }
 
 export async function startFakeOpenAiServer(options?: {
+  bodyDelayMs?: number;
   cors?: boolean;
   disconnectPost?: boolean;
   pageHtml?: string;
@@ -105,17 +107,27 @@ export async function startFakeOpenAiServer(options?: {
             "Content-Type": "application/json",
           },
         );
-        response.end(
-          JSON.stringify(
-            plannedResponse && "responseBody" in plannedResponse
-              ? plannedResponse.responseBody
-              : options && "responseBody" in options
-                ? options.responseBody
-                : { choices: [{ message: { content: "OK" } }] },
-          ),
-        );
-        requestTiming.respondedAt = Date.now();
-        activePostRequestCount -= 1;
+        const finishResponse = (): void => {
+          response.end(
+            JSON.stringify(
+              plannedResponse && "responseBody" in plannedResponse
+                ? plannedResponse.responseBody
+                : options && "responseBody" in options
+                  ? options.responseBody
+                  : { choices: [{ message: { content: "OK" } }] },
+            ),
+          );
+          requestTiming.respondedAt = Date.now();
+          activePostRequestCount -= 1;
+        };
+        const bodyDelayMs =
+          plannedResponse?.bodyDelayMs ?? options?.bodyDelayMs ?? 0;
+        if (bodyDelayMs > 0) {
+          response.flushHeaders();
+          setTimeout(finishResponse, bodyDelayMs);
+          return;
+        }
+        finishResponse();
       }, plannedResponse?.delayMs ?? options?.responseDelayMs ?? 0);
     });
   });
