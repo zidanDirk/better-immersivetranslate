@@ -1,5 +1,7 @@
 import type { LlmConfiguration } from "./llm-configuration.js";
 
+export const llmResponseTimeoutMilliseconds = 60_000;
+
 export function chatCompletionsUrl(endpoint: string): string {
   const url = new URL(endpoint);
   if (url.protocol !== "http:" && url.protocol !== "https:") {

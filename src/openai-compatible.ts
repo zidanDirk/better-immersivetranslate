@@ -1,9 +1,14 @@
 import type { LlmConfiguration } from "./llm-configuration.js";
+import { llmResponseTimeoutMilliseconds } from "./llm-request.js";
 
 export type ProviderFetchFailureKind = "cors" | "network";
 
 export type OpenAiRequestResult =
-  | { kind: "response"; response: Response }
+  | {
+      kind: "response";
+      response: Response;
+      timeoutSignal: AbortSignal;
+    }
   | { kind: "timeout" }
   | { kind: "fetch-failure"; failureKind: ProviderFetchFailureKind }
   | { kind: "invalid-configuration" };
@@ -58,13 +63,16 @@ export async function requestOpenAiChatCompletion(
   }
 
   try {
+    const timeoutSignal = AbortSignal.timeout(
+      llmResponseTimeoutMilliseconds,
+    );
     const response = await fetch(url, {
       method: "POST",
       headers,
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(5_000),
+      signal: timeoutSignal,
     });
-    return { kind: "response", response };
+    return { kind: "response", response, timeoutSignal };
   } catch (error) {
     if (error instanceof Error && error.name === "TimeoutError") {
       return { kind: "timeout" };

@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Worker } from "@playwright/test";
 import { launchExtension } from "./extension";
 import {
   startFakeOpenAiServer,
@@ -16,6 +16,22 @@ function requestBody(request: ReceivedOpenAiRequest): {
   return request.body as {
     messages: Array<{ role: string; content: string }>;
   };
+}
+
+async function capRequestTimeoutForTest(
+  worker: Worker,
+  milliseconds: number,
+): Promise<void> {
+  await worker.evaluate((maximumMilliseconds) => {
+    const nativeTimeout = AbortSignal.timeout.bind(AbortSignal);
+    Object.defineProperty(AbortSignal, "timeout", {
+      configurable: true,
+      value: (requestedMilliseconds: number) =>
+        nativeTimeout(
+          Math.min(requestedMilliseconds, maximumMilliseconds),
+        ),
+    });
+  }, milliseconds);
 }
 
 test("多批语义文本块以最多两个并发请求完成，并按批次写入译文", async () => {
@@ -293,11 +309,12 @@ test("批次超时后自动重试并恢复译文", async () => {
       },
     ],
   });
-  const { context, extensionId, optionsPage } = await launchExtension({
+  const { context, extensionId, optionsPage, worker } = await launchExtension({
     hostPermissions: ["http://127.0.0.1/*"],
   });
 
   try {
+    await capRequestTimeoutForTest(worker, 100);
     await saveMinimalLlmConfiguration(optionsPage, fakeServer.endpoint);
     const page = await context.newPage();
     await page.goto(fakeServer.pageUrl);
@@ -311,6 +328,72 @@ test("批次超时后自动重试并恢复译文", async () => {
       page.getByRole("region", { name: "翻译进度" }),
     ).toHaveCount(0);
     expect(fakeServer.receivedRequests).toHaveLength(2);
+  } finally {
+    await context.close();
+    await fakeServer.close();
+  }
+});
+
+test("批次等待已返回响应头的较慢正文并完成译文", async () => {
+  const fakeServer = await startFakeOpenAiServer({
+    bodyDelayMs: 5_500,
+    pageHtml: "<main><p>Slow response body source.</p></main>",
+    responseBody: translationCompletion([
+      { id: "block-0", text: "Completed after a slow response body." },
+    ]),
+  });
+  const { context, extensionId, optionsPage } = await launchExtension({
+    hostPermissions: ["http://127.0.0.1/*"],
+  });
+
+  try {
+    await saveMinimalLlmConfiguration(optionsPage, fakeServer.endpoint);
+    const page = await context.newPage();
+    await page.goto(fakeServer.pageUrl);
+
+    await triggerCurrentPageTranslation(context, extensionId, page);
+
+    await expect(
+      page.getByText("Completed after a slow response body.", { exact: true }),
+    ).toBeVisible({ timeout: 8_000 });
+    await expect(
+      page.getByRole("region", { name: "翻译进度" }),
+    ).toHaveCount(0);
+    expect(fakeServer.receivedRequests).toHaveLength(1);
+  } finally {
+    await context.close();
+    await fakeServer.close();
+  }
+});
+
+test("批次响应正文超时时显示请求超时而不是响应格式错误", async () => {
+  const fakeServer = await startFakeOpenAiServer({
+    bodyDelayMs: 1_000,
+    pageHtml: "<main><p>Timed out response body source.</p></main>",
+    responseBody: translationCompletion([
+      { id: "block-0", text: "Response body arrived too late." },
+    ]),
+  });
+  const { context, extensionId, optionsPage, worker } = await launchExtension({
+    hostPermissions: ["http://127.0.0.1/*"],
+  });
+
+  try {
+    await capRequestTimeoutForTest(worker, 100);
+    await saveMinimalLlmConfiguration(optionsPage, fakeServer.endpoint);
+    const page = await context.newPage();
+    await page.goto(fakeServer.pageUrl);
+
+    await triggerCurrentPageTranslation(context, extensionId, page);
+
+    const progress = page.getByRole("region", { name: "翻译进度" });
+    await expect(
+      progress.getByText("批次 1：请求超时：请手动重试"),
+    ).toBeVisible();
+    await expect(
+      progress.getByText("批次 1：响应格式错误：服务未返回有效译文"),
+    ).toHaveCount(0);
+    expect(fakeServer.receivedRequests).toHaveLength(4);
   } finally {
     await context.close();
     await fakeServer.close();
