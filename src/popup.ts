@@ -25,7 +25,10 @@ async function activeTab(): Promise<chrome.tabs.Tab | undefined> {
   return tab;
 }
 
-async function sendCommandToActiveTab(command: ActiveTabCommand): Promise<void> {
+async function sendCommandToActiveTab(
+  command: ActiveTabCommand,
+  closePopupOnSuccess = true,
+): Promise<void> {
   const tab = await activeTab();
   if (tab?.id === undefined) {
     return;
@@ -42,7 +45,9 @@ async function sendCommandToActiveTab(command: ActiveTabCommand): Promise<void> 
     }
     throw new Error("扩展命令执行失败");
   }
-  window.close();
+  if (closePopupOnSuccess) {
+    window.close();
+  }
 }
 
 const openLlmConfigurationButton = document.querySelector<HTMLButtonElement>(
@@ -81,23 +86,37 @@ translateButton.addEventListener("click", () => {
   );
 });
 
-document
-  .querySelectorAll<HTMLButtonElement>("[data-reading-mode]")
-  .forEach((button) => {
-    button.addEventListener("click", () => {
-      const mode = button.dataset.readingMode;
-      if (!isReadingMode(mode)) {
-        return;
-      }
-      runUiTask(
-        () =>
-          sendCommandToActiveTab({
+const readingModeButtons = Array.from(
+  document.querySelectorAll<HTMLButtonElement>("[data-reading-mode]"),
+);
+
+function selectReadingMode(selectedMode: ReadingMode): void {
+  readingModeButtons.forEach((button) => {
+    button.setAttribute(
+      "aria-pressed",
+      String(button.dataset.readingMode === selectedMode),
+    );
+  });
+}
+
+readingModeButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    const mode = button.dataset.readingMode;
+    if (!isReadingMode(mode)) {
+      return;
+    }
+    runUiTask(
+      () =>
+        sendCommandToActiveTab(
+          {
             kind: "set-reading-mode",
             mode,
-          }),
-        () => {
-          popupStatus.textContent = "阅读方式切换失败，请重试";
-        },
-      );
-    });
+          },
+          false,
+        ).then(() => selectReadingMode(mode)),
+      () => {
+        popupStatus.textContent = "阅读方式切换失败，请重试";
+      },
+    );
   });
+});

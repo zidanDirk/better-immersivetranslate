@@ -338,8 +338,15 @@ test("用户切换三种阅读方式时不会重复请求 LLM", async () => {
     const popup = await context.newPage();
     await popup.goto(`chrome-extension://${extensionId}/popup.html`);
     await page.bringToFront();
-    await popup.getByRole("button", { name: accessibleName }).click();
-    await expect.poll(() => popup.isClosed()).toBe(true);
+    const commandButton = popup.getByRole("button", { name: accessibleName });
+    await commandButton.click();
+    if (accessibleName === "翻译当前网页") {
+      await expect.poll(() => popup.isClosed()).toBe(true);
+      return;
+    }
+    await expect(commandButton).toHaveAttribute("aria-pressed", "true");
+    expect(popup.isClosed()).toBe(false);
+    await popup.close();
   }
 
   try {

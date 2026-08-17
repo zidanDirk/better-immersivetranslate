@@ -40,6 +40,78 @@ test("弹窗以可读的宽度展示主操作和阅读方式", async () => {
   }
 });
 
+test("阅读方式默认选中双语对照且仅有一个选中项", async () => {
+  const { context, extensionId } = await launchExtension();
+
+  try {
+    const popup = await context.newPage();
+    await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+
+    const readingButtons = popup.getByRole("button", {
+      name: /双语对照|仅译文|仅原文/,
+    });
+    await expect(readingButtons).toHaveCount(3);
+    const defaultReadingMode = popup.getByRole("button", {
+      name: "双语对照",
+    });
+    await expect(defaultReadingMode).toHaveAttribute("aria-pressed", "true");
+    await expect(defaultReadingMode).toHaveCSS(
+      "background-color",
+      "rgb(31, 95, 213)",
+    );
+    await expect(
+      popup.locator('[data-reading-mode][aria-pressed="true"]'),
+    ).toHaveCount(1);
+  } finally {
+    await context.close();
+  }
+});
+
+test("切换阅读方式后弹窗保持打开并更新唯一选中项", async () => {
+  const fakeServer = await startFakeOpenAiServer({
+    pageHtml: `
+      <p data-better-immersive-block-id="block-0">
+        Hello
+        <span data-better-immersive-translation-for="block-0">你好</span>
+      </p>
+    `,
+  });
+  const { context, extensionId } = await launchExtension({
+    hostPermissions: ["http://127.0.0.1/*"],
+  });
+
+  try {
+    const activePage = await context.newPage();
+    await activePage.goto(fakeServer.pageUrl);
+    const popup = await context.newPage();
+    await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+    await activePage.bringToFront();
+
+    await popup.getByRole("button", { name: "仅译文" }).click();
+
+    await expect(
+      activePage.locator('[data-better-immersive-block-id="block-0"]'),
+    ).toHaveAttribute(
+      "data-better-immersive-reading-mode",
+      "translation-only",
+    );
+    expect(popup.isClosed()).toBe(false);
+    const selectedReadingMode = popup.getByRole("button", { name: "仅译文" });
+    await expect(selectedReadingMode).toHaveAttribute("aria-pressed", "true");
+    await popup.getByRole("heading", { name: "网页沉浸式翻译" }).hover();
+    await expect(selectedReadingMode).toHaveCSS(
+      "background-color",
+      "rgb(31, 95, 213)",
+    );
+    await expect(
+      popup.locator('[data-reading-mode][aria-pressed="true"]'),
+    ).toHaveCount(1);
+  } finally {
+    await context.close();
+    await fakeServer.close();
+  }
+});
+
 test("弹窗只保留 LLM 配置一级入口并可打开配置页", async () => {
   const { context, extensionId, optionsPage } = await launchExtension();
 

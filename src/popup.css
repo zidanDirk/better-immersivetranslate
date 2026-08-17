@@ -158,6 +158,19 @@ legend {
   white-space: nowrap;
 }
 
+[data-reading-mode][aria-pressed="true"] {
+  border-color: #1f5fd5;
+  color: #fff;
+  background: #1f5fd5;
+  box-shadow: 0 6px 14px rgb(31 95 213 / 22%);
+}
+
+[data-reading-mode][aria-pressed="true"]:hover {
+  border-color: #173e9a;
+  color: #fff;
+  background: #173e9a;
+}
+
 #open-llm-configuration {
   display: flex;
   width: 100%;
