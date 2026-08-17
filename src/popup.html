@@ -24,11 +24,27 @@
       </section>
       <fieldset>
         <legend>阅读方式</legend>
-        <button type="button" data-reading-mode="bilingual">双语对照</button>
-        <button type="button" data-reading-mode="translation-only">
+        <button
+          type="button"
+          data-reading-mode="bilingual"
+          aria-pressed="true"
+        >
+          双语对照
+        </button>
+        <button
+          type="button"
+          data-reading-mode="translation-only"
+          aria-pressed="false"
+        >
           仅译文
         </button>
-        <button type="button" data-reading-mode="original-only">仅原文</button>
+        <button
+          type="button"
+          data-reading-mode="original-only"
+          aria-pressed="false"
+        >
+          仅原文
+        </button>
       </fieldset>
       <button id="open-llm-configuration" type="button">
         <span>LLM 配置</span><span aria-hidden="true">›</span>
