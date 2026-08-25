@@ -11,6 +11,7 @@ export type ConnectionTestResult =
   | { kind: "authentication" }
   | { kind: "network" }
   | { kind: "cors" }
+  | { kind: "rate-limit" }
   | { kind: "incompatible-response" }
   | { kind: "http"; status: number }
   | { kind: "invalid-configuration" };
@@ -98,6 +99,9 @@ export async function testLlmConnection(
 
   if (response.status === 401 || response.status === 403) {
     return { kind: "authentication" };
+  }
+  if (response.status === 429) {
+    return { kind: "rate-limit" };
   }
   if (!response.ok) {
     return { kind: "http", status: response.status };

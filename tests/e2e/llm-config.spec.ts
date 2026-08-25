@@ -517,6 +517,34 @@ test("连接测试明确显示认证失败", async () => {
   }
 });
 
+test("连接测试明确显示请求限流而不是连接失败", async () => {
+  const fakeServer = await startFakeOpenAiServer({ statusCode: 429 });
+  const { context, optionsPage } = await launchExtension();
+
+  try {
+    await saveConfiguration(optionsPage, {
+      name: "限流配置",
+      endpoint: fakeServer.endpoint,
+    });
+
+    await optionsPage
+      .getByRole("button", { name: "测试连接 限流配置" })
+      .click();
+
+    await expect(
+      optionsPage.getByText(
+        "请求受限：模型繁忙或达到速率限制，请稍后重试",
+      ),
+    ).toBeVisible();
+    await expect(
+      optionsPage.getByText("连接失败（HTTP 429）"),
+    ).toHaveCount(0);
+  } finally {
+    await context.close();
+    await fakeServer.close();
+  }
+});
+
 test("连接测试明确显示网络失败", async () => {
   const unavailableServer = await startFakeOpenAiServer();
   const unavailableEndpoint = unavailableServer.endpoint;

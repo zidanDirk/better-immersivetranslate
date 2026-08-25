@@ -970,6 +970,8 @@ function describeConnectionResult(result: ConnectionTestResult): string {
       return "网络失败：无法连接到服务地址";
     case "cors":
       return "CORS 失败：服务未允许浏览器跨域请求";
+    case "rate-limit":
+      return "请求受限：模型繁忙或达到速率限制，请稍后重试";
     case "incompatible-response":
       return "连接失败：服务响应不兼容 OpenAI 接口";
     case "http":
