@@ -628,7 +628,7 @@ test("设置存储失败时显示错误且不产生未捕获异常", async () =>
         },
       });
     });
-    await optionsPage.getByLabel("全局目标语言").fill("ja");
+    await optionsPage.getByLabel("全局目标语言").selectOption("ja");
 
     await optionsPage
       .getByRole("button", { name: "保存全局目标语言" })

@@ -20,6 +20,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
 }
@@ -40,6 +41,7 @@ button:hover:not(:disabled) {
 
 button:focus-visible,
 input:focus-visible,
+select:focus-visible,
 textarea:focus-visible {
   outline: 3px solid rgb(35 91 208 / 25%);
   outline-offset: 2px;
@@ -627,12 +629,18 @@ label {
 }
 
 input,
+select,
 textarea {
   background: #fbfcff;
   border: 1px solid #cbd8f1;
   border-radius: 0.7rem;
   color: inherit;
   padding: 0.75rem;
+}
+
+select {
+  cursor: pointer;
+  width: 100%;
 }
 
 textarea {
@@ -643,6 +651,7 @@ textarea {
 }
 
 input:focus,
+select:focus,
 textarea:focus {
   border-color: #2d6be1;
   outline: 3px solid rgb(45 107 225 / 15%);

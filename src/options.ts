@@ -26,6 +26,7 @@ import {
 import {
   loadGlobalTranslationPreferences,
   saveGlobalTranslationPreferences,
+  TARGET_LANGUAGE_OPTIONS,
 } from "./translation-preferences.js";
 import {
   loadTranslationDiagnosticsEnabled,
@@ -91,7 +92,7 @@ app.innerHTML = `
   <section class="global-preferences" aria-labelledby="global-preferences-title">
     <form id="global-target-language-form">
       <h2 id="global-preferences-title">全局翻译偏好</h2>
-      <p>未设置时使用浏览器语言。</p>
+      <p>默认翻译为中文，可按需要更改。</p>
       <label class="selection-preference">
         <input name="globalSelectionTranslation" type="checkbox" />
         <span>
@@ -101,7 +102,11 @@ app.innerHTML = `
       </label>
       <label>
         全局目标语言
-        <input name="globalTargetLanguage" placeholder="例如 zh-CN、en 或 ja" autocomplete="off" />
+        <select name="globalTargetLanguage" required>
+          ${TARGET_LANGUAGE_OPTIONS.map(
+            ({ label, value }) => `<option value="${value}">${label}</option>`,
+          ).join("")}
+        </select>
       </label>
       <div class="instruction-actions">
         <p id="global-target-language-status" aria-live="polite"></p>
@@ -251,7 +256,7 @@ const showTranslationDiagnosticsButton =
 const globalTargetLanguageForm = requireElement<HTMLFormElement>(
   "#global-target-language-form",
 );
-const globalTargetLanguageField = requireElement<HTMLInputElement>(
+const globalTargetLanguageField = requireElement<HTMLSelectElement>(
   '[name="globalTargetLanguage"]',
 );
 const globalTargetLanguageStatus = requireElement<HTMLElement>(
@@ -319,6 +324,23 @@ let editingConfigurationId: string | null = null;
 let editingTerminologyRuleId: string | null = null;
 let savedGlobalSelectionTranslationEnabled = false;
 let latestTranslationDiagnosticsDownloadId: number | undefined;
+
+function selectGlobalTargetLanguage(targetLanguage: string): void {
+  globalTargetLanguageField
+    .querySelector<HTMLOptionElement>('option[data-historical="true"]')
+    ?.remove();
+  const isPreset = TARGET_LANGUAGE_OPTIONS.some(
+    ({ value }) => value === targetLanguage,
+  );
+  if (!isPreset) {
+    const historicalOption = document.createElement("option");
+    historicalOption.value = targetLanguage;
+    historicalOption.textContent = `已保存的自定义语言（${targetLanguage}）`;
+    historicalOption.dataset.historical = "true";
+    globalTargetLanguageField.append(historicalOption);
+  }
+  globalTargetLanguageField.value = targetLanguage;
+}
 
 function renderTranslationDiagnosticsStatus(
   status: Awaited<ReturnType<typeof loadTranslationDiagnosticsStatus>>,
@@ -1345,7 +1367,7 @@ runUiTask(async () => {
   translationPromptField.value = translationInstructions.prompt;
   const globalTranslationPreferences =
     await loadGlobalTranslationPreferences();
-  globalTargetLanguageField.value = globalTranslationPreferences.targetLanguage;
+  selectGlobalTargetLanguage(globalTranslationPreferences.targetLanguage);
   globalSelectionTranslationField.checked =
     globalTranslationPreferences.selectionTranslationEnabled;
   savedGlobalSelectionTranslationEnabled =

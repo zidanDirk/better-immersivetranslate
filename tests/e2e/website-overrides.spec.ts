@@ -62,7 +62,7 @@ function systemMessage(request: ReceivedOpenAiRequest): string {
   );
 }
 
-test("未配置网站覆盖时先使用全局目标语言，否则使用浏览器语言", async () => {
+test("全局目标语言默认中文并可从下拉框选择后持续生效", async () => {
   const fakeServer = await startFakeOpenAiServer({
     pageHtml: "<main><p>Hello website.</p></main>",
     responseBody: {
@@ -84,20 +84,39 @@ test("未配置网站覆盖时先使用全局目标语言，否则使用浏览�
 
   try {
     await saveConfiguration(optionsPage, fakeServer.endpoint);
-    const browserDefaultPage = await context.newPage();
-    await browserDefaultPage.goto(fakeServer.pageUrl);
-    await translateCurrentPage(context, extensionId, browserDefaultPage);
+    const targetLanguage = optionsPage.getByLabel("全局目标语言");
+    await expect(targetLanguage).toHaveJSProperty("tagName", "SELECT");
+    await expect(targetLanguage).toHaveValue("zh-CN");
+    await expect(targetLanguage.locator("option")).toHaveText([
+      "中文（简体）",
+      "中文（繁体）",
+      "英语",
+      "日语",
+      "韩语",
+      "法语",
+      "德语",
+      "西班牙语",
+      "葡萄牙语",
+      "意大利语",
+      "俄语",
+    ]);
+
+    const defaultLanguagePage = await context.newPage();
+    await defaultLanguagePage.goto(fakeServer.pageUrl);
+    await translateCurrentPage(context, extensionId, defaultLanguagePage);
     await expect.poll(() => fakeServer.receivedRequests).toHaveLength(1);
     expect(translationInput(fakeServer.receivedRequests[0]!)).toMatchObject({
-      targetLanguage: "fr-FR",
+      targetLanguage: "zh-CN",
     });
 
     await optionsPage.bringToFront();
-    await optionsPage.getByLabel("全局目标语言").fill("ja");
+    await targetLanguage.selectOption("ja");
     await optionsPage
       .getByRole("button", { name: "保存全局目标语言" })
       .click();
     await expect(optionsPage.getByText("全局目标语言已保存")).toBeVisible();
+    await optionsPage.reload();
+    await expect(optionsPage.getByLabel("全局目标语言")).toHaveValue("ja");
 
     const globalLanguagePage = await context.newPage();
     await globalLanguagePage.goto(fakeServer.pageUrl);
@@ -136,7 +155,7 @@ test("网站覆盖设置替代全局目标语言和翻译提示词", async () =>
 
   try {
     await saveConfiguration(optionsPage, fakeServer.endpoint);
-    await optionsPage.getByLabel("全局目标语言").fill("ja");
+    await optionsPage.getByLabel("全局目标语言").selectOption("ja");
     await optionsPage
       .getByRole("button", { name: "保存全局目标语言" })
       .click();
@@ -171,6 +190,31 @@ test("网站覆盖设置替代全局目标语言和翻译提示词", async () =>
   } finally {
     await context.close();
     await fakeServer.close();
+  }
+});
+
+test("设置页保留历史上保存的自定义全局目标语言", async () => {
+  const { context, optionsPage } = await launchExtension();
+
+  try {
+    await optionsPage.evaluate(() =>
+      chrome.storage.local.set({
+        globalTranslationPreferences: {
+          targetLanguage: "nl",
+          selectionTranslationEnabled: false,
+        },
+      }),
+    );
+
+    await optionsPage.reload();
+
+    const targetLanguage = optionsPage.getByLabel("全局目标语言");
+    await expect(targetLanguage).toHaveValue("nl");
+    await expect(
+      targetLanguage.locator('option[value="nl"]'),
+    ).toHaveText("已保存的自定义语言（nl）");
+  } finally {
+    await context.close();
   }
 });
 

@@ -111,7 +111,7 @@ test("用户主动触发后翻译当前静态网页", async () => {
       temperature: 0.2,
       translationInput: {
         sourceLanguage: "auto",
-        targetLanguage: "fr-FR",
+        targetLanguage: "zh-CN",
         blocks: [
           { id: "block-0", text: "Hello world." },
           { id: "block-1", text: "Good night." },
@@ -253,7 +253,7 @@ test("标题、段落、列表项和表格单元格保持原有结构进行翻�
       JSON.parse(requestBody(received).messages.at(-1)?.content ?? "{}"),
     ).toEqual({
       sourceLanguage: "auto",
-      targetLanguage: "en-US",
+      targetLanguage: "zh-CN",
       blocks: [
         { id: "block-0", text: "Release notes" },
         { id: "block-1", text: "Stable translation." },
