@@ -124,6 +124,62 @@ test("用户主动触发后翻译当前静态网页", async () => {
   }
 });
 
+test("翻译请求使用设置页当前选择的 LLM 配置", async () => {
+  const fakeServer = await startFakeOpenAiServer({
+    pageHtml: "<main><p>Hello world.</p></main>",
+    responseBody: {
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              translations: [{ id: "block-0", text: "你好，世界。" }],
+            }),
+          },
+        },
+      ],
+    },
+  });
+  const { context, extensionId, optionsPage } = await launchExtension({
+    browserLanguage: "zh-CN",
+    hostPermissions: ["http://127.0.0.1/*"],
+  });
+
+  try {
+    await saveConfiguration(optionsPage, fakeServer.endpoint);
+    await optionsPage.getByRole("button", { name: "新增 LLM 配置" }).click();
+    await optionsPage.getByLabel("名称").fill("长文翻译");
+    await optionsPage.getByLabel("服务地址").fill(fakeServer.endpoint);
+    await optionsPage.getByLabel("API Key").fill("selected-secret");
+    await optionsPage.getByLabel("模型").fill("selected-model");
+    await optionsPage.getByLabel("请求参数").fill('{"temperature":0.7}');
+    await optionsPage.getByLabel("自定义请求头").fill('{"X-Test":"selected"}');
+    await optionsPage.getByRole("button", { name: "保存配置" }).click();
+    await optionsPage
+      .getByRole("radio", { name: "使用 长文翻译" })
+      .check();
+
+    const page = await context.newPage();
+    await page.goto(fakeServer.pageUrl);
+    await translateCurrentPage(context, extensionId, page);
+
+    const received = await fakeServer.receivedRequest;
+    expect({
+      authorization: received.headers.authorization,
+      customHeader: received.headers["x-test"],
+      model: requestBody(received).model,
+      temperature: requestBody(received).temperature,
+    }).toEqual({
+      authorization: "Bearer selected-secret",
+      customHeader: "selected",
+      model: "selected-model",
+      temperature: 0.7,
+    });
+  } finally {
+    await context.close();
+    await fakeServer.close();
+  }
+});
+
 test("标题、段落、列表项和表格单元格保持原有结构进行翻译", async () => {
   const fakeServer = await startFakeOpenAiServer({
     pageHtml: `

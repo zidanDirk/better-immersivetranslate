@@ -384,6 +384,75 @@ h1 {
   padding: 1.5rem;
 }
 
+.configuration-card {
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.configuration-card.is-selected {
+  background: linear-gradient(135deg, #fff 30%, #f1f6ff);
+  border-color: #5f88df;
+  box-shadow:
+    0 0 0 3px rgb(43 110 232 / 10%),
+    0 1rem 2.8rem rgb(33 67 145 / 13%);
+}
+
+.configuration-selection {
+  align-items: center;
+  background: #f2f5fc;
+  border: 1px solid #d8e1f3;
+  border-radius: 999px;
+  color: #617296;
+  cursor: pointer;
+  display: flex;
+  font-size: 0.76rem;
+  font-weight: 750;
+  gap: 0.45rem;
+  margin: 0 0 1rem auto;
+  padding: 0.38rem 0.68rem 0.38rem 0.48rem;
+  width: fit-content;
+}
+
+.configuration-selection:hover {
+  background: #e9effb;
+  border-color: #b9c9e9;
+}
+
+.configuration-selection input {
+  height: 1rem;
+  margin: 0;
+  opacity: 0;
+  position: absolute;
+  width: 1rem;
+}
+
+.configuration-selection-marker {
+  background: #fff;
+  border: 1px solid #aab9d5;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 3px #fff;
+  height: 0.9rem;
+  width: 0.9rem;
+}
+
+.configuration-selection:has(input:focus-visible) {
+  outline: 3px solid rgb(35 91 208 / 25%);
+  outline-offset: 2px;
+}
+
+.configuration-card.is-selected .configuration-selection {
+  background: #173f91;
+  border-color: #173f91;
+  color: #fff;
+}
+
+.configuration-card.is-selected .configuration-selection-marker {
+  background: #ffd866;
+  border-color: #ffd866;
+}
+
 .configuration-form {
   border-top: 4px solid #2b6ee8;
   margin-top: 1rem;

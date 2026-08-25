@@ -1,7 +1,9 @@
 import {
   loadLlmConfigurations,
+  loadSelectedLlmConfiguration,
   removeLlmConfiguration,
   saveLlmConfiguration,
+  selectLlmConfiguration,
   type LlmConfiguration,
 } from "./llm-configuration.js";
 import {
@@ -731,7 +733,10 @@ function configurationFromForm(): LlmConfiguration | null {
 }
 
 async function renderConfigurations(): Promise<void> {
-  const configurations = await loadLlmConfigurations();
+  const [configurations, selectedConfiguration] = await Promise.all([
+    loadLlmConfigurations(),
+    loadSelectedLlmConfiguration(),
+  ]);
 
   if (configurations.length === 0) {
     list.innerHTML = `
@@ -747,6 +752,33 @@ async function renderConfigurations(): Promise<void> {
     ...configurations.map((configuration) => {
       const article = document.createElement("article");
       article.className = "configuration-card";
+      const isSelected = configuration.id === selectedConfiguration?.id;
+      article.classList.toggle("is-selected", isSelected);
+
+      const selection = document.createElement("label");
+      selection.className = "configuration-selection";
+      const selectionInput = document.createElement("input");
+      selectionInput.type = "radio";
+      selectionInput.name = "selectedLlmConfiguration";
+      selectionInput.checked = isSelected;
+      selectionInput.setAttribute("aria-label", `使用 ${configuration.name}`);
+      selectionInput.addEventListener("change", () => {
+        if (!selectionInput.checked) return;
+        runUiTask(async () => {
+          await selectLlmConfiguration(configuration.id);
+          optionsStatus.textContent = `当前使用 ${configuration.name}`;
+          await renderConfigurations();
+        }, () => {
+          optionsStatus.textContent = "LLM 配置切换失败，请重试";
+          void renderConfigurations();
+        });
+      });
+      const selectionMarker = document.createElement("span");
+      selectionMarker.className = "configuration-selection-marker";
+      selectionMarker.setAttribute("aria-hidden", "true");
+      const selectionText = document.createElement("span");
+      selectionText.textContent = isSelected ? "当前使用" : "使用此配置";
+      selection.append(selectionInput, selectionMarker, selectionText);
 
       const preset = presetForConfiguration(configuration);
       const cardHeader = document.createElement("div");
@@ -828,6 +860,7 @@ async function renderConfigurations(): Promise<void> {
       actions.append(testButton, editButton, deleteButton);
 
       article.append(
+        selection,
         cardHeader,
         modelDetails,
         endpointHost,

@@ -270,8 +270,77 @@ test("用户新增的 LLM 配置在设置页面重新打开后仍然存在", asy
   await optionsPage.reload();
   await expect(optionsPage.getByText("本地测试")).toBeVisible();
   await expect(optionsPage.getByText("fake-model")).toBeVisible();
+  await expect(
+    optionsPage.getByRole("radio", { name: "使用 本地测试" }),
+  ).toBeChecked();
+  await expect(
+    optionsPage
+      .locator(".configuration-card")
+      .filter({ hasText: "本地测试" })
+      .getByText("当前使用"),
+  ).toBeVisible();
 
   await context.close();
+});
+
+test("多个 LLM 配置可以选择当前使用项并外显选中状态", async () => {
+  const { context, optionsPage } = await launchExtension();
+
+  try {
+    await saveConfiguration(optionsPage, {
+      name: "日常翻译",
+      model: "daily-model",
+    });
+    await saveConfiguration(optionsPage, {
+      name: "长文翻译",
+      model: "long-form-model",
+    });
+
+    const dailyConfiguration = optionsPage
+      .locator(".configuration-card")
+      .filter({ hasText: "日常翻译" });
+    const longFormConfiguration = optionsPage
+      .locator(".configuration-card")
+      .filter({ hasText: "长文翻译" });
+
+    await longFormConfiguration
+      .getByRole("radio", { name: "使用 长文翻译" })
+      .check();
+
+    await expect(
+      longFormConfiguration.getByRole("radio", { name: "使用 长文翻译" }),
+    ).toBeChecked();
+    await expect(longFormConfiguration.getByText("当前使用")).toBeVisible();
+    await expect(dailyConfiguration.getByText("当前使用")).toHaveCount(0);
+  } finally {
+    await context.close();
+  }
+});
+
+test("当前使用的 LLM 配置在设置页面重新打开后仍然保留", async () => {
+  const { context, optionsPage } = await launchExtension();
+
+  try {
+    await saveConfiguration(optionsPage, { name: "日常翻译" });
+    await saveConfiguration(optionsPage, { name: "长文翻译" });
+    await optionsPage
+      .getByRole("radio", { name: "使用 长文翻译" })
+      .check();
+
+    await optionsPage.reload();
+
+    await expect(
+      optionsPage.getByRole("radio", { name: "使用 长文翻译" }),
+    ).toBeChecked();
+    await expect(
+      optionsPage
+        .locator(".configuration-card")
+        .filter({ hasText: "长文翻译" })
+        .getByText("当前使用"),
+    ).toBeVisible();
+  } finally {
+    await context.close();
+  }
 });
 
 test("用户可以编辑已有的 LLM 配置", async () => {
@@ -310,6 +379,34 @@ test("用户可以删除已有的 LLM 配置", async () => {
   await expect(optionsPage.getByText("还没有 LLM 配置")).toBeVisible();
 
   await context.close();
+});
+
+test("删除当前使用的 LLM 配置后自动使用剩余配置", async () => {
+  const { context, optionsPage } = await launchExtension();
+
+  try {
+    await saveConfiguration(optionsPage, { name: "保留配置" });
+    await saveConfiguration(optionsPage, { name: "待删除配置" });
+    await optionsPage
+      .getByRole("radio", { name: "使用 待删除配置" })
+      .check();
+
+    await optionsPage
+      .getByRole("button", { name: "删除 待删除配置" })
+      .click();
+
+    await expect(
+      optionsPage.getByRole("radio", { name: "使用 保留配置" }),
+    ).toBeChecked();
+    await expect(
+      optionsPage
+        .locator(".configuration-card")
+        .filter({ hasText: "保留配置" })
+        .getByText("当前使用"),
+    ).toBeVisible();
+  } finally {
+    await context.close();
+  }
 });
 
 test("设置页面明确说明 API Key 的本地存储与安全边界", async () => {

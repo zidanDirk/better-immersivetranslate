@@ -1,4 +1,4 @@
-import { loadLlmConfigurations } from "./llm-configuration.js";
+import { loadSelectedLlmConfiguration } from "./llm-configuration.js";
 import { requestOpenAiChatCompletion } from "./openai-compatible.js";
 import {
   type SemanticTextBlock,
@@ -93,7 +93,7 @@ export async function translateSemanticTextBatch(
 ): Promise<TranslationBatchResult> {
   const startedAt = new Date().toISOString();
   const startedAtMilliseconds = performance.now();
-  const [configuration] = await loadLlmConfigurations();
+  const configuration = await loadSelectedLlmConfiguration();
   if (!configuration) {
     return {
       kind: "failed",
