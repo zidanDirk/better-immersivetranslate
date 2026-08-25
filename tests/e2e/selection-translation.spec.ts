@@ -5,6 +5,7 @@ import {
   type ReceivedOpenAiRequest,
 } from "./fake-openai-server";
 import type { WebsiteOverride } from "../../src/website-overrides";
+import { validatedSourcePhonetic } from "../../src/source-phonetic";
 import { isSingleWordSelection } from "../../src/word-selection";
 
 async function saveConfiguration(page: Page, endpoint: string): Promise<void> {
@@ -65,6 +66,24 @@ test("只把一个自然语言单词识别为单词划词翻译", () => {
     "word.",
     "123",
   ].some(isSingleWordSelection)).toBe(false);
+});
+
+test("拒绝明显属于译文的音标", () => {
+  expect(
+    validatedSourcePhonetic(
+      "serendipity",
+      "意外发现美好事物的能力",
+      "/ˌserənˈdɪpəti/",
+    ),
+  ).toBe("/ˌserənˈdɪpəti/");
+  expect(
+    validatedSourcePhonetic("coding", "编程", "/biān chéng/"),
+  ).toBeUndefined();
+  expect(
+    validatedSourcePhonetic("coding", "编程", "/bia\u0304n che\u0301ng/"),
+  ).toBeUndefined();
+  expect(validatedSourcePhonetic("coding", "编程", "/编程/")).toBeUndefined();
+  expect(validatedSourcePhonetic("coding", "编程", "coding")).toBeUndefined();
 });
 
 async function clickSelectionMenu(
@@ -244,7 +263,7 @@ test("划词翻译单个单词时显示音标并可点击图标朗读原词", as
                 {
                   id: "selected-text",
                   text: "意外发现美好事物的能力",
-                  phonetic: "/ˌserənˈdɪpəti/",
+                  sourcePhonetic: "/ˌserənˈdɪpəti/",
                 },
               ],
             }),
@@ -303,7 +322,13 @@ test("划词翻译单个单词时显示音标并可点击图标朗读原词", as
     const translationInput = JSON.parse(
       body.messages.at(-1)?.content ?? "{}",
     ) as unknown;
-    expect(systemMessage).toContain("original-language pronunciation as IPA");
+    expect(systemMessage).toContain(
+      "sourcePhonetic field is exclusively for the pronunciation of blocks[].text in its original language",
+    );
+    expect(systemMessage).toContain(
+      "Never put the pronunciation or transliteration of the translated text",
+    );
+    expect(systemMessage).toContain("including pinyin or romaji");
     expect(translationInput).toEqual({
       sourceLanguage: "auto",
       targetLanguage: "zh-CN",
@@ -319,6 +344,68 @@ test("划词翻译单个单词时显示音标并可点击图标朗读原词", as
       "data-spoken-language",
       "en",
     );
+  } finally {
+    await context.close();
+    await fakeServer.close();
+  }
+});
+
+test("单词划词翻译不显示译文语言的音标", async () => {
+  const fakeServer = await startFakeOpenAiServer({
+    pageHtml: '<main lang="en"><p>coding</p></main>',
+    responseBody: {
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              translations: [
+                {
+                  id: "selected-text",
+                  text: "编程",
+                  sourcePhonetic: "/biān chéng/",
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    },
+  });
+  const { context, optionsPage } = await launchExtension({
+    browserLanguage: "zh-CN",
+    hostPermissions: ["http://*/*", "https://*/*"],
+  });
+
+  try {
+    await saveConfiguration(optionsPage, fakeServer.endpoint);
+    await optionsPage
+      .getByLabel("在所有网站启用划词翻译")
+      .check();
+    const page = await context.newPage();
+    await page.goto(fakeServer.pageUrl);
+
+    await page.getByText("coding", { exact: true }).selectText();
+    await page.getByRole("button", { name: "翻译所选文字" }).click();
+
+    const result = page.getByRole("region", { name: "划词翻译结果" });
+    await expect(result).toContainText("编程");
+    await expect(
+      result.getByText("/biān chéng/", { exact: true }),
+    ).toHaveCount(0);
+    await expect(
+      result.getByRole("button", { name: "朗读单词 coding" }),
+    ).toHaveCount(0);
+
+    await page.keyboard.press("Escape");
+    await page.evaluate(() => window.getSelection()?.removeAllRanges());
+    await page.getByText("coding", { exact: true }).selectText();
+    await page.getByRole("button", { name: "翻译所选文字" }).click();
+    await expect(
+      page
+        .getByRole("region", { name: "划词翻译结果" })
+        .getByText("/biān chéng/", { exact: true }),
+    ).toHaveCount(0);
+    expect(fakeServer.receivedRequests).toHaveLength(1);
   } finally {
     await context.close();
     await fakeServer.close();

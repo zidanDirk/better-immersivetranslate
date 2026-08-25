@@ -176,6 +176,21 @@ test("并发翻译任务不会互相覆盖本地缓存记录", async () => {
       ],
       uncachedBlocks: [],
     });
+
+    const wordWithoutTrustedPhonetic = { id: "word-2", text: "coding" };
+    await storeTranslations(
+      [wordWithoutTrustedPhonetic],
+      [{ id: wordWithoutTrustedPhonetic.id, text: "编程", phonetic: "" }],
+      phoneticContext,
+    );
+    await expect(
+      findCachedTranslations([wordWithoutTrustedPhonetic], phoneticContext),
+    ).resolves.toEqual({
+      cachedTranslations: [
+        { id: "word-2", text: "编程", phonetic: "" },
+      ],
+      uncachedBlocks: [],
+    });
   } finally {
     if (originalChrome) {
       Object.defineProperty(globalThis, "chrome", originalChrome);

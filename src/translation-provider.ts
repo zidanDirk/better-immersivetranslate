@@ -20,6 +20,7 @@ import {
   createTranslationAttemptDiagnostic,
   type TranslationAttemptDiagnostic,
 } from "./translation-diagnostics.js";
+import { validatedSourcePhonetic } from "./source-phonetic.js";
 
 export type TranslationBatchResult =
   | { kind: "complete"; translations: Translation[] }
@@ -29,16 +30,21 @@ export type TranslationBatchResult =
       diagnostic?: TranslationAttemptDiagnostic;
     };
 
+interface TranslationResponse {
+  id: string;
+  text: string;
+  sourcePhonetic?: string;
+}
+
 function isTranslation(
   value: unknown,
-  includePhonetics: boolean,
-): value is Translation {
+): value is TranslationResponse {
   return (
     isRecord(value) &&
     typeof value.id === "string" &&
     typeof value.text === "string" &&
-    (!includePhonetics ||
-      (typeof value.phonetic === "string" && value.phonetic.trim().length > 0))
+    (value.sourcePhonetic === undefined ||
+      typeof value.sourcePhonetic === "string")
   );
 }
 
@@ -73,15 +79,26 @@ function readTranslations(
   const expectedIds = new Set(blocks.map((block) => block.id));
   if (
     translations.length !== blocks.length ||
-    !translations.every((translation) =>
-      isTranslation(translation, includePhonetics),
-    ) ||
+    !translations.every(isTranslation) ||
     translations.some((translation) => !expectedIds.delete(translation.id)) ||
     expectedIds.size !== 0
   ) {
     return null;
   }
-  return translations;
+  if (!includePhonetics) {
+    return translations.map(({ id, text }) => ({ id, text }));
+  }
+  const blockById = new Map(blocks.map((block) => [block.id, block]));
+  return translations.map((translation) => ({
+    id: translation.id,
+    text: translation.text,
+    phonetic:
+      validatedSourcePhonetic(
+        blockById.get(translation.id)?.text ?? "",
+        translation.text,
+        translation.sourcePhonetic,
+      ) ?? "",
+  }));
 }
 
 export async function translateSemanticTextBatch(

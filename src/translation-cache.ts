@@ -11,6 +11,7 @@ import type {
 import { isRecord } from "./unknown-value.js";
 
 const storageKeyPrefix = "translationCache:";
+const sourcePhoneticContractVersion = 2;
 
 export interface TranslationInstructionIdentity {
   prompt: string;
@@ -73,7 +74,12 @@ export async function createTranslationCacheIdentity(
       sourceLanguage: context.sourceLanguage,
       targetLanguage: context.targetLanguage,
       instructions: context.instructions,
-      ...(context.includePhonetics ? { includePhonetics: true } : {}),
+      ...(context.includePhonetics
+        ? {
+            includePhonetics: true,
+            sourcePhoneticContractVersion,
+          }
+        : {}),
       sourceText,
     }),
   );
@@ -123,7 +129,7 @@ export async function findCachedTranslations(
           : undefined;
     if (
       !cachedTranslation ||
-      (context.includePhonetics && !cachedTranslation.phonetic)
+      (context.includePhonetics && cachedTranslation.phonetic === undefined)
     ) {
       uncachedBlocks.push(block);
       return;
