@@ -8,6 +8,7 @@ import type {
   SemanticTextBlock,
   Translation,
 } from "./page-translation.js";
+import { isRecord } from "./unknown-value.js";
 
 const storageKeyPrefix = "translationCache:";
 
@@ -18,6 +19,7 @@ export interface TranslationInstructionIdentity {
 
 export interface TranslationCacheContext {
   configuration: LlmConfiguration;
+  includePhonetics?: boolean;
   sourceLanguage: string;
   targetLanguage: string;
   instructions: TranslationInstructionIdentity;
@@ -71,6 +73,7 @@ export async function createTranslationCacheIdentity(
       sourceLanguage: context.sourceLanguage,
       targetLanguage: context.targetLanguage,
       instructions: context.instructions,
+      ...(context.includePhonetics ? { includePhonetics: true } : {}),
       sourceText,
     }),
   );
@@ -102,12 +105,30 @@ export async function findCachedTranslations(
   const uncachedBlocks: SemanticTextBlock[] = [];
 
   blocks.forEach((block, index) => {
-    const cachedText = cache[storageKeys[index] ?? ""] as string | undefined;
-    if (cachedText === undefined) {
+    const cached = cache[storageKeys[index] ?? ""] as unknown;
+    const cachedTranslation =
+      typeof cached === "string"
+        ? { id: block.id, text: cached }
+        : isRecord(cached) &&
+            typeof cached.text === "string" &&
+            (cached.phonetic === undefined ||
+              typeof cached.phonetic === "string")
+          ? {
+              id: block.id,
+              text: cached.text,
+              ...(typeof cached.phonetic === "string"
+                ? { phonetic: cached.phonetic }
+                : {}),
+            }
+          : undefined;
+    if (
+      !cachedTranslation ||
+      (context.includePhonetics && !cachedTranslation.phonetic)
+    ) {
       uncachedBlocks.push(block);
       return;
     }
-    cachedTranslations.push({ id: block.id, text: cachedText });
+    cachedTranslations.push(cachedTranslation);
   });
 
   return { cachedTranslations, uncachedBlocks };
@@ -118,11 +139,11 @@ export async function storeTranslations(
   translations: Translation[],
   context: TranslationCacheContext,
 ): Promise<void> {
-  const translatedTextById = new Map(
-    translations.map((translation) => [translation.id, translation.text]),
+  const translationById = new Map(
+    translations.map((translation) => [translation.id, translation]),
   );
   const translatedBlocks = blocks.filter((block) =>
-    translatedTextById.has(block.id),
+    translationById.has(block.id),
   );
   if (translatedBlocks.length === 0) {
     return;
@@ -137,7 +158,12 @@ export async function storeTranslations(
     Object.fromEntries(
       translatedBlocks.map((block, index) => [
         cacheStorageKey(identities[index] ?? ""),
-        translatedTextById.get(block.id) ?? "",
+        context.includePhonetics
+          ? {
+              text: translationById.get(block.id)?.text ?? "",
+              phonetic: translationById.get(block.id)?.phonetic ?? "",
+            }
+          : (translationById.get(block.id)?.text ?? ""),
       ]),
     ),
   );

@@ -150,6 +150,32 @@ test("并发翻译任务不会互相覆盖本地缓存记录", async () => {
       ],
       uncachedBlocks: [],
     });
+
+    const wordBlock = { id: "word", text: "serendipity" };
+    const phoneticContext = { ...context, includePhonetics: true };
+    await storeTranslations(
+      [wordBlock],
+      [
+        {
+          id: wordBlock.id,
+          text: "意外发现美好事物的能力",
+          phonetic: "/ˌserənˈdɪpəti/",
+        },
+      ],
+      phoneticContext,
+    );
+    await expect(
+      findCachedTranslations([wordBlock], phoneticContext),
+    ).resolves.toEqual({
+      cachedTranslations: [
+        {
+          id: "word",
+          text: "意外发现美好事物的能力",
+          phonetic: "/ˌserənˈdɪpəti/",
+        },
+      ],
+      uncachedBlocks: [],
+    });
   } finally {
     if (originalChrome) {
       Object.defineProperty(globalThis, "chrome", originalChrome);

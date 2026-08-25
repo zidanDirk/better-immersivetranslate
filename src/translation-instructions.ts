@@ -32,6 +32,7 @@ export async function saveTranslationInstructions(
 
 export function createTranslationSystemMessage(
   instructions: TranslationInstructions,
+  options: { includePhonetics?: boolean } = {},
 ): string {
   const terminologyInstruction =
     instructions.terminologyRules.length === 0
@@ -46,12 +47,22 @@ export function createTranslationSystemMessage(
           ),
         ];
 
+  const responseInstruction = options.includePhonetics
+    ? [
+        "Each supplied block is a single source word. Include its original-language pronunciation as IPA wrapped in slashes in the phonetic field.",
+        "Return JSON only with one translation for every supplied stable block id, using the shape " +
+          '{"translations":[{"id":"block-id","text":"translated text","phonetic":"/IPA/"}]}.',
+      ]
+    : [
+        "Return JSON only with one translation for every supplied stable block id, using the shape " +
+          '{"translations":[{"id":"block-id","text":"translated text"}]}.',
+      ];
+
   return [
     instructions.prompt,
     ...terminologyInstruction,
     "Preserve semantic formatting in every translated text.",
-    "Return JSON only with one translation for every supplied stable block id, using the shape " +
-      '{"translations":[{"id":"block-id","text":"translated text"}]}.',
+    ...responseInstruction,
     "Do not add explanations or any text outside the JSON object.",
   ].join("\n\n");
 }

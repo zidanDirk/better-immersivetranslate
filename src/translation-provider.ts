@@ -29,17 +29,23 @@ export type TranslationBatchResult =
       diagnostic?: TranslationAttemptDiagnostic;
     };
 
-function isTranslation(value: unknown): value is Translation {
+function isTranslation(
+  value: unknown,
+  includePhonetics: boolean,
+): value is Translation {
   return (
     isRecord(value) &&
     typeof value.id === "string" &&
-    typeof value.text === "string"
+    typeof value.text === "string" &&
+    (!includePhonetics ||
+      (typeof value.phonetic === "string" && value.phonetic.trim().length > 0))
   );
 }
 
 function readTranslations(
   completion: unknown,
   blocks: SemanticTextBlock[],
+  includePhonetics: boolean,
 ): Translation[] | null {
   if (!isRecord(completion) || !Array.isArray(completion.choices)) {
     return null;
@@ -67,7 +73,9 @@ function readTranslations(
   const expectedIds = new Set(blocks.map((block) => block.id));
   if (
     translations.length !== blocks.length ||
-    !translations.every(isTranslation) ||
+    !translations.every((translation) =>
+      isTranslation(translation, includePhonetics),
+    ) ||
     translations.some((translation) => !expectedIds.delete(translation.id)) ||
     expectedIds.size !== 0
   ) {
@@ -81,6 +89,7 @@ export async function translateSemanticTextBatch(
   targetLanguage: string,
   suppliedInstructions?: TranslationInstructions,
   captureDiagnostics = false,
+  includePhonetics = false,
 ): Promise<TranslationBatchResult> {
   const startedAt = new Date().toISOString();
   const startedAtMilliseconds = performance.now();
@@ -104,6 +113,7 @@ export async function translateSemanticTextBatch(
     suppliedInstructions ?? (await loadTranslationInstructions());
   const cacheContext: TranslationCacheContext = {
     configuration,
+    includePhonetics,
     sourceLanguage: "auto",
     targetLanguage,
     instructions,
@@ -120,13 +130,16 @@ export async function translateSemanticTextBatch(
     messages: [
       {
         role: "system",
-        content: createTranslationSystemMessage(instructions),
+        content: createTranslationSystemMessage(instructions, {
+          includePhonetics,
+        }),
       },
       {
         role: "user",
         content: JSON.stringify({
           sourceLanguage: "auto",
           targetLanguage,
+          ...(includePhonetics ? { includePhonetics: true } : {}),
           blocks: uncachedBlocks.map(({ id, text }) => ({ id, text })),
         }),
       },
@@ -188,7 +201,11 @@ export async function translateSemanticTextBatch(
       diagnosticResponse,
     );
   }
-  const translations = readTranslations(completion, uncachedBlocks);
+  const translations = readTranslations(
+    completion,
+    uncachedBlocks,
+    includePhonetics,
+  );
   if (!translations) return failed("response-format", diagnosticResponse);
   await storeTranslations(uncachedBlocks, translations, cacheContext);
   return { kind: "complete", translations: [...cachedTranslations, ...translations] };

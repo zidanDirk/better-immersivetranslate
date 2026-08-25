@@ -5,6 +5,7 @@ import {
   type ReceivedOpenAiRequest,
 } from "./fake-openai-server";
 import type { WebsiteOverride } from "../../src/website-overrides";
+import { isSingleWordSelection } from "../../src/word-selection";
 
 async function saveConfiguration(page: Page, endpoint: string): Promise<void> {
   await page.getByRole("button", { name: "新增 LLM 配置" }).click();
@@ -50,6 +51,21 @@ function requestBody(request: ReceivedOpenAiRequest): {
     model: string;
   };
 }
+
+test("只把一个自然语言单词识别为单词划词翻译", () => {
+  expect([
+    "serendipity",
+    "l’été",
+    "state-of-the-art",
+    "你好",
+  ].every(isSingleWordSelection)).toBe(true);
+  expect([
+    "two words",
+    "这是一个句子",
+    "word.",
+    "123",
+  ].some(isSingleWordSelection)).toBe(false);
+});
 
 async function clickSelectionMenu(
   worker: Worker,
@@ -110,6 +126,7 @@ test("用户从右键菜单翻译选中的文本而不翻译整页或修改编�
                 {
                   id: "selected-text",
                   text: "选中的正文内容",
+                  phonetic: "/model-extra-field-must-be-ignored/",
                 },
               ],
             }),
@@ -163,6 +180,9 @@ test("用户从右键菜单翻译选中的文本而不翻译整页或修改编�
     await expect(
       page.getByRole("region", { name: "划词翻译结果" }),
     ).toContainText("选中的正文内容");
+    await expect(
+      page.getByRole("button", { name: /朗读单词/ }),
+    ).toHaveCount(0);
     const [selectionBox, panelBox] = await Promise.all([
       page
         .getByRole("main")
@@ -206,6 +226,99 @@ test("用户从右键菜单翻译选中的文本而不翻译整页或修改编�
         ],
       },
     });
+  } finally {
+    await context.close();
+    await fakeServer.close();
+  }
+});
+
+test("划词翻译单个单词时显示音标并可点击图标朗读原词", async () => {
+  const fakeServer = await startFakeOpenAiServer({
+    pageHtml: '<main lang="en"><p>serendipity</p></main>',
+    responseBody: {
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              translations: [
+                {
+                  id: "selected-text",
+                  text: "意外发现美好事物的能力",
+                  phonetic: "/ˌserənˈdɪpəti/",
+                },
+              ],
+            }),
+          },
+        },
+      ],
+    },
+  });
+  const { context, optionsPage, worker } = await launchExtension({
+    browserLanguage: "zh-CN",
+    hostPermissions: ["http://*/*", "https://*/*"],
+  });
+
+  try {
+    await saveConfiguration(optionsPage, fakeServer.endpoint);
+    await optionsPage
+      .getByLabel("在所有网站启用划词翻译")
+      .check();
+    const page = await context.newPage();
+    await page.goto(fakeServer.pageUrl);
+    await worker.evaluate(async (pageUrl) => {
+      const [pageTab] = await chrome.tabs.query({ url: pageUrl });
+      if (pageTab?.id === undefined) {
+        throw new Error("没有找到单词朗读测试页面");
+      }
+      await chrome.scripting.executeScript({
+        target: { tabId: pageTab.id },
+        func: () => {
+          Object.defineProperty(window.speechSynthesis, "speak", {
+            configurable: true,
+            value: (utterance: SpeechSynthesisUtterance) => {
+              document.documentElement.dataset.spokenWord = utterance.text;
+              document.documentElement.dataset.spokenLanguage = utterance.lang;
+            },
+          });
+        },
+      });
+    }, fakeServer.pageUrl);
+
+    await page.getByText("serendipity", { exact: true }).selectText();
+    await page.getByRole("button", { name: "翻译所选文字" }).click();
+
+    const result = page.getByRole("region", { name: "划词翻译结果" });
+    await expect(result.getByText("/ˌserənˈdɪpəti/", { exact: true })).toBeVisible();
+    await expect(result).toContainText("意外发现美好事物的能力");
+    const speak = result.getByRole("button", {
+      name: "朗读单词 serendipity",
+    });
+    await expect(speak).toBeVisible();
+
+    const received = await fakeServer.receivedRequest;
+    const body = requestBody(received);
+    const systemMessage = body.messages.find(
+      ({ role }) => role === "system",
+    )?.content;
+    const translationInput = JSON.parse(
+      body.messages.at(-1)?.content ?? "{}",
+    ) as unknown;
+    expect(systemMessage).toContain("original-language pronunciation as IPA");
+    expect(translationInput).toEqual({
+      sourceLanguage: "auto",
+      targetLanguage: "zh-CN",
+      includePhonetics: true,
+      blocks: [{ id: "selected-text", text: "serendipity" }],
+    });
+
+    await speak.click();
+    await expect.poll(() =>
+      page.locator("html").getAttribute("data-spoken-word"),
+    ).toBe("serendipity");
+    await expect(page.locator("html")).toHaveAttribute(
+      "data-spoken-language",
+      "en",
+    );
   } finally {
     await context.close();
     await fakeServer.close();

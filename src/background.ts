@@ -26,6 +26,7 @@ import {
   websiteAccess,
 } from "./website-overrides.js";
 import type { TranslationInstructions } from "./translation-instructions.js";
+import { isSingleWordSelection } from "./word-selection.js";
 import {
   loadTranslationDiagnosticsEnabled,
   saveFailedTranslationBatchDiagnostic,
@@ -48,6 +49,7 @@ async function prioritizedTranslationRequest(
   instructions: TranslationInstructions,
   priority: "normal" | "selection",
   captureDiagnostics = false,
+  includePhonetics = false,
 ): Promise<TranslationBatchResult> {
   if (activeProviderRequestCount >= maximumConcurrentTranslationBatches) {
     await new Promise<void>((resolve) => {
@@ -77,6 +79,7 @@ async function prioritizedTranslationRequest(
       targetLanguage,
       instructions,
       captureDiagnostics,
+      includePhonetics,
     );
   } finally {
     release();
@@ -369,6 +372,7 @@ async function selectionTranslationResult(
       sourceText: string;
       translatedText: string;
       targetLanguage: string;
+      phonetic?: string;
     }
   | {
       kind: "failed";
@@ -377,11 +381,14 @@ async function selectionTranslationResult(
 > {
   const tab = await chrome.tabs.get(tabId);
   const preferences = await resolveTranslationPreferences(tab.url);
+  const includePhonetics = isSingleWordSelection(selectionText);
   const result = await prioritizedTranslationRequest(
     [{ id: "selected-text", text: selectionText }],
     preferences.targetLanguage,
     preferences.instructions,
     "selection",
+    false,
+    includePhonetics,
   );
   if (result.kind === "failed") return result;
   const translation = result.translations[0];
@@ -391,6 +398,9 @@ async function selectionTranslationResult(
         sourceText: selectionText,
         translatedText: translation.text,
         targetLanguage: preferences.targetLanguage,
+        ...(includePhonetics && translation.phonetic
+          ? { phonetic: translation.phonetic }
+          : {}),
       }
     : { kind: "failed", failureKind: "response-format" };
 }

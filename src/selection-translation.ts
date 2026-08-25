@@ -14,6 +14,7 @@
         sourceText: string;
         translatedText: string;
         targetLanguage: string;
+        phonetic?: string;
       }
     | { kind: "failed"; failureKind: SelectionFailure };
   type Controller = { destroy: () => void };
@@ -146,6 +147,36 @@
       font-weight: 700;
     }
     .translation { margin: 0; color: #152650; font-size: 15px; font-weight: 600; white-space: pre-wrap; }
+    .pronunciation {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin: -6px 0 12px;
+    }
+    .phonetic {
+      color: #315eaf;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: .02em;
+    }
+    .speak {
+      display: grid;
+      width: 28px;
+      height: 28px;
+      place-items: center;
+      padding: 0;
+      border: 1px solid #cddaf2;
+      border-radius: 8px;
+      color: #234889;
+      background: #eef4ff;
+      cursor: pointer;
+    }
+    .speak:hover { color: #173b7c; background: #e2ecff; }
+    .speak:focus-visible {
+      outline: 3px solid rgb(39 102 224 / 36%);
+      outline-offset: 2px;
+    }
+    .speak svg { width: 17px; height: 17px; fill: currentColor; }
     .status { margin: 0; color: #315eaf; }
     .actions { display: flex; gap: 8px; margin-top: 14px; }
     .action {
@@ -310,6 +341,58 @@
     });
     return card;
   };
+  const pronunciationLanguage = (): string => {
+    const commonAncestor = range?.commonAncestorContainer;
+    const element =
+      commonAncestor instanceof Element
+        ? commonAncestor
+        : commonAncestor?.parentElement;
+    return element?.closest("[lang]")?.getAttribute("lang")?.trim() ?? "";
+  };
+  const appendPronunciation = (
+    body: HTMLElement,
+    word: string,
+    phonetic: string | undefined,
+  ): void => {
+    if (!phonetic) return;
+    const pronunciation = document.createElement("div");
+    pronunciation.className = "pronunciation";
+    const phoneticText = document.createElement("span");
+    phoneticText.className = "phonetic";
+    phoneticText.textContent = phonetic;
+    const speak = document.createElement("button");
+    speak.className = "speak";
+    speak.type = "button";
+    speak.setAttribute("aria-label", `朗读单词 ${word}`);
+    speak.title = "朗读单词";
+    const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    icon.setAttribute("aria-hidden", "true");
+    icon.setAttribute("viewBox", "0 0 24 24");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute(
+      "d",
+      "M3 9v6h4l5 4V5L7 9H3zm11.5 3a3.5 3.5 0 0 0-1.5-2.87v5.74A3.5 3.5 0 0 0 14.5 12zm-1.5-8.5v2.06a7 7 0 0 1 0 12.88v2.06a9 9 0 0 0 0-17z",
+    );
+    icon.append(path);
+    speak.append(icon);
+    speak.addEventListener("click", () => {
+      try {
+        const utterance = new SpeechSynthesisUtterance(word);
+        const language = pronunciationLanguage();
+        if (language) utterance.lang = language;
+        utterance.addEventListener("error", () => {
+          speak.setAttribute("aria-label", `朗读失败，重试单词 ${word}`);
+          speak.title = "朗读失败，请重试";
+        });
+        window.speechSynthesis.speak(utterance);
+      } catch {
+        speak.setAttribute("aria-label", `朗读失败，重试单词 ${word}`);
+        speak.title = "朗读失败，请重试";
+      }
+    });
+    pronunciation.append(phoneticText, speak);
+    body.append(pronunciation);
+  };
   const translate = async (): Promise<void> => {
     const currentGeneration = ++generation;
     const body = document.createElement("div");
@@ -393,6 +476,7 @@
       return;
     }
     status.remove();
+    appendPronunciation(body, response.sourceText, response.phonetic);
     const translation = document.createElement("p");
     translation.className = "translation";
     translation.lang = response.targetLanguage;
@@ -524,7 +608,15 @@
       translation.className = "translation";
       translation.lang = message.targetLanguage;
       translation.textContent = message.translatedText;
-      body.append(source, translation);
+      body.append(source);
+      appendPronunciation(
+        body,
+        message.sourceText,
+        "phonetic" in message && typeof message.phonetic === "string"
+          ? message.phonetic
+          : undefined,
+      );
+      body.append(translation);
       createCard(body);
     }
   };

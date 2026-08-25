@@ -7,6 +7,7 @@ export interface SemanticTextBlock {
 export interface Translation {
   id: string;
   text: string;
+  phonetic?: string;
 }
 
 export type TranslationBatchFailureKind = "authentication" | "configuration" | "cors" | "network" | "rate-limit" | "response-format" | "timeout";
