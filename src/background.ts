@@ -372,6 +372,7 @@ async function selectionTranslationResult(
       sourceText: string;
       translatedText: string;
       targetLanguage: string;
+      isSingleWord: boolean;
       phonetic?: string;
     }
   | {
@@ -391,13 +392,27 @@ async function selectionTranslationResult(
     includePhonetics,
   );
   if (result.kind === "failed") return result;
-  const translation = result.translations[0];
+  let translation = result.translations[0];
+  if (includePhonetics && translation && !translation.phonetic) {
+    const recovery = await prioritizedTranslationRequest(
+      [{ id: "selected-text", text: selectionText }],
+      preferences.targetLanguage,
+      preferences.instructions,
+      "selection",
+      false,
+      true,
+    );
+    if (recovery.kind === "complete") {
+      translation = recovery.translations[0] ?? translation;
+    }
+  }
   return translation
     ? {
         kind: "complete",
         sourceText: selectionText,
         translatedText: translation.text,
         targetLanguage: preferences.targetLanguage,
+        isSingleWord: includePhonetics,
         ...(includePhonetics && translation.phonetic
           ? { phonetic: translation.phonetic }
           : {}),

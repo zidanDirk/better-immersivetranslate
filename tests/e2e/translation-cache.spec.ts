@@ -186,10 +186,8 @@ test("并发翻译任务不会互相覆盖本地缓存记录", async () => {
     await expect(
       findCachedTranslations([wordWithoutTrustedPhonetic], phoneticContext),
     ).resolves.toEqual({
-      cachedTranslations: [
-        { id: "word-2", text: "编程", phonetic: "" },
-      ],
-      uncachedBlocks: [],
+      cachedTranslations: [],
+      uncachedBlocks: [wordWithoutTrustedPhonetic],
     });
   } finally {
     if (originalChrome) {

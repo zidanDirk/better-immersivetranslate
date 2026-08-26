@@ -14,6 +14,7 @@
         sourceText: string;
         translatedText: string;
         targetLanguage: string;
+        isSingleWord: boolean;
         phonetic?: string;
       }
     | { kind: "failed"; failureKind: SelectionFailure };
@@ -353,13 +354,17 @@
     body: HTMLElement,
     word: string,
     phonetic: string | undefined,
+    isSingleWord: boolean,
   ): void => {
-    if (!phonetic) return;
+    if (!isSingleWord && !phonetic) return;
     const pronunciation = document.createElement("div");
     pronunciation.className = "pronunciation";
-    const phoneticText = document.createElement("span");
-    phoneticText.className = "phonetic";
-    phoneticText.textContent = phonetic;
+    if (phonetic) {
+      const phoneticText = document.createElement("span");
+      phoneticText.className = "phonetic";
+      phoneticText.textContent = phonetic;
+      pronunciation.append(phoneticText);
+    }
     const speak = document.createElement("button");
     speak.className = "speak";
     speak.type = "button";
@@ -390,7 +395,7 @@
         speak.title = "朗读失败，请重试";
       }
     });
-    pronunciation.append(phoneticText, speak);
+    pronunciation.append(speak);
     body.append(pronunciation);
   };
   const translate = async (): Promise<void> => {
@@ -476,7 +481,12 @@
       return;
     }
     status.remove();
-    appendPronunciation(body, response.sourceText, response.phonetic);
+    appendPronunciation(
+      body,
+      response.sourceText,
+      response.phonetic,
+      response.isSingleWord,
+    );
     const translation = document.createElement("p");
     translation.className = "translation";
     translation.lang = response.targetLanguage;
@@ -615,6 +625,7 @@
         "phonetic" in message && typeof message.phonetic === "string"
           ? message.phonetic
           : undefined,
+        "isSingleWord" in message && message.isSingleWord === true,
       );
       body.append(translation);
       createCard(body);

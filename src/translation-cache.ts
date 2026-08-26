@@ -129,7 +129,7 @@ export async function findCachedTranslations(
           : undefined;
     if (
       !cachedTranslation ||
-      (context.includePhonetics && cachedTranslation.phonetic === undefined)
+      (context.includePhonetics && !cachedTranslation.phonetic)
     ) {
       uncachedBlocks.push(block);
       return;
@@ -148,9 +148,13 @@ export async function storeTranslations(
   const translationById = new Map(
     translations.map((translation) => [translation.id, translation]),
   );
-  const translatedBlocks = blocks.filter((block) =>
-    translationById.has(block.id),
-  );
+  const translatedBlocks = blocks.filter((block) => {
+    const translation = translationById.get(block.id);
+    return (
+      translation !== undefined &&
+      (!context.includePhonetics || Boolean(translation.phonetic))
+    );
+  });
   if (translatedBlocks.length === 0) {
     return;
   }

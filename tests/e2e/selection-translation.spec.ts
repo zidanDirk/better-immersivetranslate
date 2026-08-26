@@ -323,7 +323,7 @@ test("划词翻译单个单词时显示音标并可点击图标朗读原词", as
       body.messages.at(-1)?.content ?? "{}",
     ) as unknown;
     expect(systemMessage).toContain(
-      "sourcePhonetic field is exclusively for the pronunciation of blocks[].text in its original language",
+      "Always return sourcePhonetic with the standard dictionary pronunciation of blocks[].text in its original language",
     );
     expect(systemMessage).toContain(
       "Never put the pronunciation or transliteration of the translated text",
@@ -344,6 +344,60 @@ test("划词翻译单个单词时显示音标并可点击图标朗读原词", as
       "data-spoken-language",
       "en",
     );
+  } finally {
+    await context.close();
+    await fakeServer.close();
+  }
+});
+
+test("单词音标首次缺失时自动恢复并保留朗读入口", async () => {
+  const translationResponse = (sourcePhonetic?: string): unknown => ({
+    choices: [
+      {
+        message: {
+          content: JSON.stringify({
+            translations: [
+              {
+                id: "selected-text",
+                text: "填充的",
+                ...(sourcePhonetic ? { sourcePhonetic } : {}),
+              },
+            ],
+          }),
+        },
+      },
+    ],
+  });
+  const fakeServer = await startFakeOpenAiServer({
+    pageHtml: '<main lang="en"><p>filled</p></main>',
+    responseSequence: [
+      { responseBody: translationResponse() },
+      { responseBody: translationResponse("/fɪld/") },
+    ],
+  });
+  const { context, optionsPage } = await launchExtension({
+    browserLanguage: "zh-CN",
+    hostPermissions: ["http://*/*", "https://*/*"],
+  });
+
+  try {
+    await saveConfiguration(optionsPage, fakeServer.endpoint);
+    await optionsPage
+      .getByLabel("在所有网站启用划词翻译")
+      .check();
+    const page = await context.newPage();
+    await page.goto(fakeServer.pageUrl);
+
+    await page.getByText("filled", { exact: true }).selectText();
+    await page.getByRole("button", { name: "翻译所选文字" }).click();
+
+    const result = page.getByRole("region", { name: "划词翻译结果" });
+    await expect(result).toContainText("填充的");
+    await expect(result.getByText("/fɪld/", { exact: true })).toBeVisible();
+    await expect(
+      result.getByRole("button", { name: "朗读单词 filled" }),
+    ).toBeVisible();
+    await expect.poll(() => fakeServer.receivedRequests).toHaveLength(2);
   } finally {
     await context.close();
     await fakeServer.close();
@@ -394,7 +448,7 @@ test("单词划词翻译不显示译文语言的音标", async () => {
     ).toHaveCount(0);
     await expect(
       result.getByRole("button", { name: "朗读单词 coding" }),
-    ).toHaveCount(0);
+    ).toBeVisible();
 
     await page.keyboard.press("Escape");
     await page.evaluate(() => window.getSelection()?.removeAllRanges());
@@ -405,7 +459,12 @@ test("单词划词翻译不显示译文语言的音标", async () => {
         .getByRole("region", { name: "划词翻译结果" })
         .getByText("/biān chéng/", { exact: true }),
     ).toHaveCount(0);
-    expect(fakeServer.receivedRequests).toHaveLength(1);
+    await expect(
+      page
+        .getByRole("region", { name: "划词翻译结果" })
+        .getByRole("button", { name: "朗读单词 coding" }),
+    ).toBeVisible();
+    await expect.poll(() => fakeServer.receivedRequests).toHaveLength(4);
   } finally {
     await context.close();
     await fakeServer.close();

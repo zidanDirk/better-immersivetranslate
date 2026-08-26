@@ -49,8 +49,8 @@ export function createTranslationSystemMessage(
 
   const responseInstruction = options.includePhonetics
     ? [
-        "Each supplied block is a single source word. The sourcePhonetic field is exclusively for the pronunciation of blocks[].text in its original language, written as IPA and wrapped in slashes.",
-        "Never put the pronunciation or transliteration of the translated text in sourcePhonetic (including pinyin or romaji). Omit sourcePhonetic when the source-word IPA is uncertain.",
+        "Each supplied block is a single source word. Always return sourcePhonetic with the standard dictionary pronunciation of blocks[].text in its original language, written as IPA and wrapped in slashes.",
+        "The sourcePhonetic field is exclusively for the source word. Never put the pronunciation or transliteration of the translated text in sourcePhonetic (including pinyin or romaji).",
         "Return JSON only with one translation for every supplied stable block id, using the shape " +
           '{"translations":[{"id":"block-id","text":"translated text","sourcePhonetic":"/IPA/"}]}.',
       ]
